@@ -32,7 +32,7 @@ class ConfigManager private constructor(private val context: Context) {
     
     // Overlay visibility
     var overlayVisible: Boolean
-        get() = sharedPrefs.getBoolean(KEY_OVERLAY_VISIBLE, true)
+        get() = sharedPrefs.getBoolean(KEY_OVERLAY_VISIBLE, false)
         set(value) {
             sharedPrefs.edit().putBoolean(KEY_OVERLAY_VISIBLE, value).apply()
         }

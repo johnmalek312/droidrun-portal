@@ -291,7 +291,7 @@
                                 android:id="@+id/toggle_overlay"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:checked="true"
+                                android:checked="false"
                                 android:padding="16dp"
                                 android:text="Show Overlay"
                                 android:textColor="@color/droidrun_text_secondary"
