@@ -157,6 +157,10 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
     private fun handleGetRequest(path: String): String {
         Log.d(TAG, "Handling GET request for path: $path")
         return when {
+            path.startsWith("/a11y_tree_full") -> {
+                Log.d(TAG, "Processing /a11y_tree_full request")
+                getAccessibilityTreeFull()
+            }
             path.startsWith("/a11y_tree") -> {
                 Log.d(TAG, "Processing /a11y_tree request")
                 getAccessibilityTree()
@@ -347,7 +351,7 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
             Log.d(TAG, "Getting accessibility tree...")
             val elements = accessibilityService.getVisibleElements()
             Log.d(TAG, "Found ${elements.size} visible elements")
-            
+
             val treeJson = elements.map { element ->
                 buildElementNodeJson(element)
             }
@@ -357,6 +361,22 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get accessibility tree", e)
             createErrorResponse("Failed to get accessibility tree: ${e.message}")
+        }
+    }
+
+    private fun getAccessibilityTreeFull(): String {
+        return try {
+            Log.d(TAG, "Getting full accessibility tree...")
+            val rootNode = accessibilityService.rootInActiveWindow
+                ?: return createErrorResponse("No active window available")
+
+            val fullTree = AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(rootNode)
+            val response = createSuccessResponse(fullTree.toString())
+            Log.d(TAG, "Full accessibility tree response created: ${response.length} chars")
+            response
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get full accessibility tree", e)
+            createErrorResponse("Failed to get full accessibility tree: ${e.message}")
         }
     }
 
@@ -454,11 +474,14 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
         }
     }
 
+
     private fun buildPhoneStateJson(phoneState: com.droidrun.portal.model.PhoneState) =
         JSONObject().apply {
             put("currentApp", phoneState.appName)
             put("packageName", phoneState.packageName)
+            put("activityName", phoneState.activityName ?: "")
             put("keyboardVisible", phoneState.keyboardVisible)
+            put("isEditable", phoneState.isEditable)
             put("focusedElement", JSONObject().apply {
                 put("text", phoneState.focusedElement?.text)
                 put("className", phoneState.focusedElement?.className)
