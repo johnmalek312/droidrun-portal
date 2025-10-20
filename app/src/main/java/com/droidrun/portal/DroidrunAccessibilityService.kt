@@ -18,6 +18,9 @@ import android.graphics.Bitmap
 import android.util.Base64
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
+import android.content.ClipboardManager
+import android.content.ClipData
+import android.content.Context
 
 class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.ConfigChangeListener {
 
@@ -46,6 +49,10 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     private var currentPackageName: String = ""
     private var currentActivityName: String = ""
     private val visibleElements = mutableListOf<ElementNode>()
+
+    // Clipboard caching
+    private var cachedClipboardText: String? = null
+    private var clipboardListener: ClipboardManager.OnPrimaryClipChangedListener? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -97,9 +104,12 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
         // Start periodic updates
         startPeriodicUpdates()
-        
+
         // Start socket server if enabled
         startSocketServerIfEnabled()
+
+        // Initialize clipboard change listener to cache clipboard content
+        setupClipboardListener()
 
         Log.d(TAG, "Accessibility service connected and configured")
     }
@@ -661,6 +671,72 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         }
     }
 
+    // Clipboard functionality
+    private fun setupClipboardListener() {
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+            // Read initial clipboard content
+            updateCachedClipboard(clipboard)
+
+            // Create and register listener for clipboard changes
+            clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
+                Log.d(TAG, "Clipboard changed, updating cache")
+                updateCachedClipboard(clipboard)
+            }
+
+            clipboard.addPrimaryClipChangedListener(clipboardListener)
+            Log.d(TAG, "Clipboard change listener registered successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting up clipboard listener", e)
+        }
+    }
+
+    private fun updateCachedClipboard(clipboard: ClipboardManager) {
+        try {
+            if (!clipboard.hasPrimaryClip()) {
+                cachedClipboardText = null
+                Log.d(TAG, "Clipboard cache updated: (empty)")
+            } else {
+                val clip = clipboard.primaryClip
+                if (clip != null && clip.itemCount > 0) {
+                    val item = clip.getItemAt(0)
+                    cachedClipboardText = item.text?.toString()
+                    val preview = cachedClipboardText?.take(50) ?: "(null)"
+                    Log.d(TAG, "Clipboard cache updated: $preview...")
+                } else {
+                    cachedClipboardText = null
+                    Log.d(TAG, "Clipboard cache updated: (no items)")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating clipboard cache", e)
+            cachedClipboardText = null
+        }
+    }
+
+    fun getClipboardText(): String? {
+        // Return cached value instead of reading directly
+        // This works around Android 10+ restrictions on clipboard read access
+        Log.d(TAG, "Returning cached clipboard text")
+        return cachedClipboardText
+    }
+
+    fun setClipboardText(text: String): Boolean {
+        return try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("droidrun_clipboard", text)
+            clipboard.setPrimaryClip(clip)
+            // Update cache immediately (listener will also fire, but this is faster)
+            cachedClipboardText = text
+            Log.d(TAG, "Clipboard text set successfully and cache updated")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting clipboard text", e)
+            false
+        }
+    }
+
     override fun onInterrupt() {
         Log.d(TAG, "Accessibility service interrupted")
         stopPeriodicUpdates()
@@ -671,6 +747,20 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         super.onDestroy()
         stopPeriodicUpdates()
         stopSocketServer()
+
+        // Clean up clipboard listener
+        clipboardListener?.let {
+            try {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.removePrimaryClipChangedListener(it)
+                Log.d(TAG, "Clipboard listener removed")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing clipboard listener", e)
+            }
+        }
+        clipboardListener = null
+        cachedClipboardText = null
+
         clearElementList()
         configManager.removeListener(this)
         instance = null

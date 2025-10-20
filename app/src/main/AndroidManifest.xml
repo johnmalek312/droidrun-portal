@@ -8,12 +8,12 @@
     
     <!-- Permission for socket communication -->
     <uses-permission android:name="android.permission.INTERNET" />
-    
+
     <!-- Define a custom permission for secure broadcast communication -->
     <permission
         android:name="com.droidrun.portal.SEND_INPUT_DATA"
         android:protectionLevel="signature" />
-    
+
     <!-- Use our custom permission -->
     <uses-permission android:name="com.droidrun.portal.SEND_INPUT_DATA" />
 

@@ -35,6 +35,8 @@ class DroidrunContentProvider : ContentProvider() {
         private const val OVERLAY_OFFSET = 6
         private const val PACKAGES = 7
         private const val A11Y_TREE_FULL = 8
+        private const val CLIPBOARD_GET = 9
+        private const val CLIPBOARD_SET = 10
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -45,6 +47,8 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "state", STATE)
             addURI(AUTHORITY, "overlay_offset", OVERLAY_OFFSET)
             addURI(AUTHORITY, "packages", PACKAGES)
+            addURI(AUTHORITY, "clipboard/get", CLIPBOARD_GET)
+            addURI(AUTHORITY, "clipboard/set", CLIPBOARD_SET)
         }
     }
 
@@ -70,6 +74,7 @@ class DroidrunContentProvider : ContentProvider() {
                 PING -> createSuccessResponse("pong")
                 STATE -> getCombinedState()
                 PACKAGES -> getInstalledPackagesJson()
+                CLIPBOARD_GET -> getClipboard()
                 else -> createErrorResponse("Unknown endpoint: ${uri.path}")
             }
             
@@ -87,6 +92,7 @@ class DroidrunContentProvider : ContentProvider() {
         return when (uriMatcher.match(uri)) {
             KEYBOARD_ACTIONS -> executeKeyboardAction(uri, values)
             OVERLAY_OFFSET -> updateOverlayOffset(uri, values)
+            CLIPBOARD_SET -> setClipboard(uri, values)
             else -> "content://$AUTHORITY/result?status=error&message=${Uri.encode("Unsupported insert endpoint: ${uri.path}")}".toUri()
         }
     }
@@ -400,6 +406,49 @@ class DroidrunContentProvider : ContentProvider() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to enumerate launchable apps", e)
             createErrorResponse("Failed to enumerate launchable apps: ${e.message}")
+        }
+    }
+
+    private fun getClipboard(): String {
+        val accessibilityService = DroidrunAccessibilityService.getInstance()
+            ?: return createErrorResponse("Accessibility service not available")
+
+        return try {
+            val clipboardText = accessibilityService.getClipboardText()
+            if (clipboardText != null) {
+                createSuccessResponse(clipboardText)
+            } else {
+                createSuccessResponse("") // Empty clipboard
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get clipboard", e)
+            createErrorResponse("Failed to get clipboard: ${e.message}")
+        }
+    }
+
+    private fun setClipboard(uri: Uri, values: ContentValues?): Uri? {
+        if (values == null) {
+            return "content://$AUTHORITY/result?status=error&message=No values provided".toUri()
+        }
+
+        try {
+            val text = values.getAsString("text")
+                ?: return "content://$AUTHORITY/result?status=error&message=No text provided".toUri()
+
+            val accessibilityService = DroidrunAccessibilityService.getInstance()
+                ?: return "content://$AUTHORITY/result?status=error&message=Accessibility service not available".toUri()
+
+            val success = accessibilityService.setClipboardText(text)
+
+            return if (success) {
+                "content://$AUTHORITY/result?status=success&message=${Uri.encode("Clipboard set successfully")}".toUri()
+            } else {
+                "content://$AUTHORITY/result?status=error&message=Failed to set clipboard".toUri()
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set clipboard", e)
+            return "content://$AUTHORITY/result?status=error&message=${Uri.encode("Execution failed: ${e.message}")}".toUri()
         }
     }
 

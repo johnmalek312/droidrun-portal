@@ -186,6 +186,10 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
                 Log.d(TAG, "Processing /packages request")
                 getInstalledPackages()
             }
+            path.startsWith("/clipboard/get") -> {
+                Log.d(TAG, "Processing /clipboard/get request")
+                getClipboard()
+            }
             else -> {
                 Log.w(TAG, "Unknown endpoint requested: $path")
                 createErrorResponse("Unknown endpoint: $path")
@@ -202,25 +206,37 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
             path.startsWith("/overlay_offset") -> {
                 handleOverlayOffset(reader)
             }
+            path.startsWith("/clipboard/set") -> {
+                handleClipboardSet(reader)
+            }
             else -> createErrorResponse("Unknown POST endpoint: $path")
         }
     }
 
+    private fun readPostData(reader: BufferedReader): String {
+        val postData = StringBuilder()
+        val buffer = CharArray(4096)
+        var bytesRead: Int
+
+        while (reader.ready()) {
+            bytesRead = reader.read(buffer)
+            if (bytesRead > 0) {
+                postData.append(buffer, 0, bytesRead)
+            } else {
+                break
+            }
+        }
+
+        return postData.toString()
+    }
+
     private fun handleKeyboardAction(action: String, reader: BufferedReader): String {
         return try {
-            // Read POST data if present
-            val contentLength = 0 // We'll parse this if needed
-            val postData = StringBuilder()
-            if (reader.ready()) {
-                val char = CharArray(1024)
-                val bytesRead = reader.read(char)
-                if (bytesRead > 0) {
-                    postData.append(char, 0, bytesRead)
-                }
-            }
+            // Read POST data
+            val postDataStr = readPostData(reader)
 
             // Parse URL-encoded or JSON data
-            val values = parsePostData(postData.toString())
+            val values = parsePostData(postDataStr)
 
             when (action) {
                 "input" -> performKeyboardInputBase64(values)
@@ -236,16 +252,8 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
 
     private fun handleOverlayOffset(reader: BufferedReader): String {
         return try {
-            val postData = StringBuilder()
-            if (reader.ready()) {
-                val char = CharArray(1024)
-                val bytesRead = reader.read(char)
-                if (bytesRead > 0) {
-                    postData.append(char, 0, bytesRead)
-                }
-            }
-
-            val values = parsePostData(postData.toString())
+            val postDataStr = readPostData(reader)
+            val values = parsePostData(postDataStr)
             val offset = values.getAsInteger("offset") 
                 ?: return "error: No offset provided"
 
@@ -517,6 +525,45 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
         } catch (e: Exception) {
             Log.e(TAG, "Failed to enumerate launchable apps", e)
             createErrorResponse("Failed to enumerate launchable apps: ${e.message}")
+        }
+    }
+
+    private fun getClipboard(): String {
+        return try {
+            Log.d(TAG, "Getting clipboard...")
+            val clipboardText = accessibilityService.getClipboardText()
+            if (clipboardText != null) {
+                val response = createSuccessResponse(clipboardText)
+                Log.d(TAG, "Clipboard retrieved successfully: ${clipboardText.length} chars")
+                response
+            } else {
+                Log.d(TAG, "Clipboard is empty")
+                createSuccessResponse("") // Empty clipboard
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get clipboard", e)
+            createErrorResponse("Failed to get clipboard: ${e.message}")
+        }
+    }
+
+    private fun handleClipboardSet(reader: BufferedReader): String {
+        return try {
+            val postDataStr = readPostData(reader)
+            val values = parsePostData(postDataStr)
+            val text = values.getAsString("text")
+                ?: return "error: No text provided"
+
+            val success = accessibilityService.setClipboardText(text)
+
+            if (success) {
+                Log.d(TAG, "Clipboard set successfully: ${text.length} chars")
+                "success: Clipboard set successfully"
+            } else {
+                "error: Failed to set clipboard"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling clipboard set", e)
+            "error: Failed to handle clipboard set: ${e.message}"
         }
     }
 
