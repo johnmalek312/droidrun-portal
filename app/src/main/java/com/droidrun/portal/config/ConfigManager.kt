@@ -44,9 +44,6 @@ class ConfigManager private constructor(private val context: Context) {
         private const val DEFAULT_REVERSE_CONNECTION_URL =
             "wss://api.mobilerun.ai/v1/providers/personal/join"
 
-        const val API_KEY_PREFIX = "dr_sk_"
-        const val API_KEY_LENGTH = 70
-
         // TODO replace
         @Volatile
         private var INSTANCE: ConfigManager? = null

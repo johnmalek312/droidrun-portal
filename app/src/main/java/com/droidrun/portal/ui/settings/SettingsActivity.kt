@@ -78,6 +78,7 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        persistReverseConnectionInputs()
         AppVisibilityTracker.setForeground(false)
     }
 
@@ -163,17 +164,8 @@ class SettingsActivity : AppCompatActivity() {
                     configManager.reverseConnectionUrlOrDefault
                 }
 
-                val apiKey = binding.inputReverseToken.text.toString().replace("\\s+".toRegex(), "")
-                if (apiKey.isNotBlank() && !apiKey.startsWith(ConfigManager.API_KEY_PREFIX)) {
-                    binding.inputReverseToken.error = "API key must start with ${ConfigManager.API_KEY_PREFIX}"
-                    binding.switchReverseEnabled.isChecked = false
-                    return@setOnCheckedChangeListener
-                }
-                if (apiKey.isNotBlank() && apiKey.length != ConfigManager.API_KEY_LENGTH) {
-                    binding.inputReverseToken.error = "Invalid API key length (expected ${ConfigManager.API_KEY_LENGTH}, got ${apiKey.length})"
-                    binding.switchReverseEnabled.isChecked = false
-                    return@setOnCheckedChangeListener
-                }
+                val apiKey = sanitizeToken(binding.inputReverseToken.text?.toString())
+                binding.inputReverseToken.error = null
 
                 configManager.reverseConnectionUrl = url
                 configManager.reverseConnectionToken = apiKey
@@ -186,7 +178,7 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.inputReverseUrl.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_NEXT) {
-                configManager.reverseConnectionUrl = v.text.toString()
+                configManager.reverseConnectionUrl = v.text.toString().trim()
                 if (actionId == EditorInfo.IME_ACTION_DONE) binding.inputReverseUrl.clearFocus()
                 restartServiceIfEnabled()
                 true
@@ -197,16 +189,11 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.inputReverseToken.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                val apiKey = v.text.toString().replace("\\s+".toRegex(), "")
-                if (apiKey.isNotBlank() && !apiKey.startsWith(ConfigManager.API_KEY_PREFIX)) {
-                    binding.inputReverseToken.error = "API key must start with ${ConfigManager.API_KEY_PREFIX}"
-                } else if (apiKey.isNotBlank() && apiKey.length != ConfigManager.API_KEY_LENGTH) {
-                    binding.inputReverseToken.error = "Invalid API key length (expected ${ConfigManager.API_KEY_LENGTH}, got ${apiKey.length})"
-                } else {
-                    configManager.reverseConnectionToken = apiKey
-                    binding.inputReverseToken.clearFocus()
-                    restartServiceIfEnabled()
-                }
+                val apiKey = sanitizeToken(v.text?.toString())
+                binding.inputReverseToken.error = null
+                configManager.reverseConnectionToken = apiKey
+                binding.inputReverseToken.clearFocus()
+                restartServiceIfEnabled()
                 true
             } else {
                 false
@@ -346,6 +333,15 @@ class SettingsActivity : AppCompatActivity() {
             stopService(intent)
             startForegroundService(intent)
         }
+    }
+
+    private fun sanitizeToken(value: String?): String {
+        return value?.replace("\\s+".toRegex(), "") ?: ""
+    }
+
+    private fun persistReverseConnectionInputs() {
+        configManager.reverseConnectionUrl = binding.inputReverseUrl.text?.toString()?.trim() ?: ""
+        configManager.reverseConnectionToken = sanitizeToken(binding.inputReverseToken.text?.toString())
     }
 
     private fun setupEventToggle(
