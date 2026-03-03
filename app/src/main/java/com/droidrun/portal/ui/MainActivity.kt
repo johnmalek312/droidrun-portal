@@ -110,8 +110,19 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             }
 
             val configManager = ConfigManager.getInstance(this)
+            var savedToken = sanitizeToken(configManager.reverseConnectionToken)
+            if (savedToken != configManager.reverseConnectionToken) {
+                configManager.reverseConnectionToken = savedToken
+            }
 
-            if (configManager.reverseConnectionToken.isNotBlank()) {
+            if (currentState == ConnectionState.UNAUTHORIZED) {
+                configManager.reverseConnectionToken = ""
+                configManager.reverseConnectionEnabled = false
+                configManager.forceLoginOnNextConnect = true
+                savedToken = ""
+            }
+
+            if (savedToken.isNotBlank() && !configManager.forceLoginOnNextConnect) {
                 // Has API key — connect directly without browser
                 configManager.reverseConnectionEnabled = true
                 val serviceIntent = Intent(this, ReverseConnectionService::class.java)
@@ -148,14 +159,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
         binding.btnDisconnect.setOnClickListener {
             disconnectService()
-        }
-
-        binding.btnLogout.setOnClickListener {
-            logoutAndClearCredentials()
-        }
-
-        binding.btnLogoutDisconnected.setOnClickListener {
-            logoutAndClearCredentials()
         }
 
         binding.btnCancelConnection.setOnClickListener {
@@ -335,22 +338,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
     }
 
-    private fun logoutAndClearCredentials() {
-        val configManager = ConfigManager.getInstance(this)
-        configManager.reverseConnectionEnabled = false
-        configManager.reverseConnectionToken = ""
-
-        val serviceIntent =
-            Intent(this, ReverseConnectionService::class.java).apply {
-                action = ReverseConnectionService.ACTION_DISCONNECT
-            }
-        startService(serviceIntent)
-
-        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
-        updateDisconnectedLogoutVisibility()
-        configManager.forceLoginOnNextConnect = true
-    }
-
     private fun disconnectService() {
         ConfigManager.getInstance(this).reverseConnectionEnabled = false
 
@@ -361,11 +348,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         startService(serviceIntent)
 
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
-    }
-
-    private fun updateDisconnectedLogoutVisibility() {
-        val hasApiKey = ConfigManager.getInstance(this).reverseConnectionToken.isNotBlank()
-        binding.btnLogoutDisconnected.visibility = if (hasApiKey) View.VISIBLE else View.GONE
     }
 
     private fun retryConnection() {
@@ -410,25 +392,13 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
 
         btnConnect.setOnClickListener {
-            val apiKey = inputToken.text?.toString()?.replace("\\s+".toRegex(), "") ?: ""
+            val apiKey = sanitizeToken(inputToken.text?.toString())
 
             Log.d(TAG, "showCustomConnectionDialog: Connect clicked, API key length=${apiKey.length}")
 
             if (apiKey.isBlank()) {
                 Log.w(TAG, "showCustomConnectionDialog: API key is blank")
                 Toast.makeText(this, "Please enter an API key", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            if (!apiKey.startsWith(ConfigManager.API_KEY_PREFIX)) {
-                Log.w(TAG, "showCustomConnectionDialog: Invalid API key prefix")
-                Toast.makeText(this, "API key must start with ${ConfigManager.API_KEY_PREFIX}", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            if (apiKey.length != ConfigManager.API_KEY_LENGTH) {
-                Log.w(TAG, "showCustomConnectionDialog: Invalid API key length=${apiKey.length}")
-                Toast.makeText(this, "Invalid API key length (expected ${ConfigManager.API_KEY_LENGTH}, got ${apiKey.length})", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
@@ -506,7 +476,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
                 else -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
-                    updateDisconnectedLogoutVisibility()
                 }
             }
         }
@@ -1024,6 +993,10 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         handleDeepLink(intent)
     }
 
+    private fun sanitizeToken(value: String?): String {
+        return value?.replace("\\s+".toRegex(), "") ?: ""
+    }
+
     private fun handleDeepLink(intent: Intent?) {
         try {
             val data: Uri? = intent?.data
@@ -1033,7 +1006,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
                 if (!token.isNullOrEmpty() && !url.isNullOrEmpty()) {
                     val configManager = ConfigManager.getInstance(this)
-                    configManager.reverseConnectionToken = token
+                    configManager.reverseConnectionToken = sanitizeToken(token)
                     configManager.reverseConnectionUrl = url
                     configManager.reverseConnectionEnabled = true
 
