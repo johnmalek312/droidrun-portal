@@ -173,7 +173,14 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 if (origin == Origin.HTTP) {
                     ApiResponse.Error("Streaming commands require WebSocket connection")
                 } else {
-                    apiHandler.stopStream(graceful = origin == Origin.WEBSOCKET_REVERSE)
+                    val sessionId = params.optString("sessionId")
+                    if (sessionId.isNullOrBlank()) {
+                        return ApiResponse.Error("Missing required param: 'sessionId'")
+                    }
+                    apiHandler.stopStream(
+                        sessionId = sessionId,
+                        graceful = origin == Origin.WEBSOCKET_REVERSE,
+                    )
                 }
             }
 
@@ -182,7 +189,11 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                     ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
                 } else {
                     val sdp = params.getString("sdp")
-                    apiHandler.handleWebRtcAnswer(sdp)
+                    val sessionId = params.optString("sessionId")
+                    if (sessionId.isNullOrBlank()) {
+                        return ApiResponse.Error("Missing required param: 'sessionId'")
+                    }
+                    apiHandler.handleWebRtcAnswer(sdp, sessionId)
                 }
             }
 
@@ -203,10 +214,14 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 if (origin != Origin.WEBSOCKET_REVERSE) {
                     ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
                 } else {
+                    val sessionId = params.optString("sessionId")
+                    if (sessionId.isNullOrBlank()) {
+                        return ApiResponse.Error("Missing required param: 'sessionId'")
+                    }
                     val candidateSdp = params.getString("candidate")
                     val sdpMid = params.optString("sdpMid")
                     val sdpMLineIndex = params.optInt("sdpMLineIndex")
-                    apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex)
+                    apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex, sessionId)
                 }
             }
 

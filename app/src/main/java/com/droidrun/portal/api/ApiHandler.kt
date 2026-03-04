@@ -547,7 +547,7 @@ class ApiHandler(
 
         val granted =
             context.checkSelfPermission(Manifest.permission.KILL_BACKGROUND_PROCESSES) ==
-                PackageManager.PERMISSION_GRANTED
+                    PackageManager.PERMISSION_GRANTED
         if (!granted) {
             return ApiResponse.Error("Missing permission: KILL_BACKGROUND_PROCESSES")
         }
@@ -647,7 +647,7 @@ class ApiHandler(
         ) {
             val elements = flattenElements(stateRepo.getVisibleElements())
             isForceStopConfirmDialogVisible(elements) ||
-                isAppInfoScreenVisible(elements, appLabel, packageName)
+                    isAppInfoScreenVisible(elements, appLabel, packageName)
         }
         if (!screenReady) {
             Log.d(TAG, "App info screen not ready for $packageName")
@@ -670,7 +670,11 @@ class ApiHandler(
                 logUiSnapshot("force_stop_confirm_not_found")
             }
             service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
-            return ForceStopUiResult(true, confirmed, if (confirmed) "confirm_clicked" else "confirm_not_found")
+            return ForceStopUiResult(
+                true,
+                confirmed,
+                if (confirmed) "confirm_clicked" else "confirm_not_found"
+            )
         }
 
         var buttonState = ForceStopButtonState.NOT_FOUND
@@ -735,7 +739,11 @@ class ApiHandler(
             logUiSnapshot("force_stop_confirm_not_found")
         }
         service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
-        return ForceStopUiResult(true, confirmed, if (confirmed) "confirm_clicked" else "confirm_not_found")
+        return ForceStopUiResult(
+            true,
+            confirmed,
+            if (confirmed) "confirm_clicked" else "confirm_not_found"
+        )
     }
 
     private fun evaluateForceStopButtonState(
@@ -744,7 +752,12 @@ class ApiHandler(
     ): ForceStopButtonState {
         val elements = flattenElements(stateRepo.getVisibleElements())
         if (isForceStopConfirmDialogVisible(elements)) return ForceStopButtonState.NOT_READY
-        if (!isAppInfoScreenVisible(elements, appLabel, packageName)) return ForceStopButtonState.NOT_READY
+        if (!isAppInfoScreenVisible(
+                elements,
+                appLabel,
+                packageName
+            )
+        ) return ForceStopButtonState.NOT_READY
         val button = findForceStopButton(elements) ?: return ForceStopButtonState.NOT_FOUND
         val info = button.nodeInfo
         if (!info.isEnabled) return ForceStopButtonState.DISABLED
@@ -808,8 +821,10 @@ class ApiHandler(
         val dialogButtons = findDialogButtonRow(elements)
         if (dialogButtons.size < 2) return false
 
-        val screenWidth = elements.maxOfOrNull { it.rect.right }?.toFloat()?.coerceAtLeast(1f) ?: return false
-        val screenHeight = elements.maxOfOrNull { it.rect.bottom }?.toFloat()?.coerceAtLeast(1f) ?: return false
+        val screenWidth =
+            elements.maxOfOrNull { it.rect.right }?.toFloat()?.coerceAtLeast(1f) ?: return false
+        val screenHeight =
+            elements.maxOfOrNull { it.rect.bottom }?.toFloat()?.coerceAtLeast(1f) ?: return false
         var left = dialogButtons.minOf { it.rect.left }
         var top = dialogButtons.minOf { it.rect.top }
         var right = dialogButtons.maxOf { it.rect.right }
@@ -823,7 +838,7 @@ class ApiHandler(
             if (element.rect.bottom > buttonsTop) return@filter false
             val overlaps =
                 element.rect.right >= left - horizontalMargin &&
-                    element.rect.left <= right + horizontalMargin
+                        element.rect.left <= right + horizontalMargin
             overlaps
         }
         if (titleCandidates.isEmpty()) return false
@@ -846,8 +861,10 @@ class ApiHandler(
     private fun findDialogButtonRow(
         elements: List<com.droidrun.portal.model.ElementNode>,
     ): List<com.droidrun.portal.model.ElementNode> {
-        val screenWidth = elements.maxOfOrNull { it.rect.right }?.toFloat()?.coerceAtLeast(1f) ?: return emptyList()
-        val screenHeight = elements.maxOfOrNull { it.rect.bottom }?.toFloat()?.coerceAtLeast(1f) ?: return emptyList()
+        val screenWidth = elements.maxOfOrNull { it.rect.right }?.toFloat()?.coerceAtLeast(1f)
+            ?: return emptyList()
+        val screenHeight = elements.maxOfOrNull { it.rect.bottom }?.toFloat()?.coerceAtLeast(1f)
+            ?: return emptyList()
         val minButtonWidth = screenWidth * 0.12f
         val minButtonHeight = screenHeight * 0.03f
         val candidates = elements.filter { element ->
@@ -921,7 +938,7 @@ class ApiHandler(
             val desc = element.nodeInfo.contentDescription?.toString()?.lowercase().orEmpty()
             val labelMatch =
                 label.length >= minLength &&
-                    (text.contains(label) || desc.contains(label))
+                        (text.contains(label) || desc.contains(label))
             val packageMatch = text.contains(packageName) || desc.contains(packageName)
             labelMatch || packageMatch
         }
@@ -1097,7 +1114,8 @@ class ApiHandler(
 
         val row = findDialogButtonRow(elements)
         val rightmost = row.maxByOrNull { it.rect.right } ?: return null
-        val ancestor = if (rightmost.nodeInfo.isClickable) null else findClickableAncestor(rightmost)
+        val ancestor =
+            if (rightmost.nodeInfo.isClickable) null else findClickableAncestor(rightmost)
         return ancestor ?: rightmost
     }
 
@@ -1733,7 +1751,10 @@ class ApiHandler(
         val width = params.optInt("width", 720).coerceIn(144, 1920)
         val height = params.optInt("height", 1280).coerceIn(256, 3840)
         val fps = params.optInt("fps", 30).coerceIn(1, 60)
-        val sessionId = params.optString("sessionId")
+        val sessionId = params.optString("sessionId").trim()
+        if (sessionId.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'sessionId'")
+        }
         val waitForOffer = params.optBoolean("waitForOffer", false)
         val manager = WebRtcManager.getInstance(context)
         manager.setStreamRequestId(sessionId)
@@ -1743,7 +1764,13 @@ class ApiHandler(
 
         if (manager.isCaptureActive()) {
             return try {
-                manager.startStreamWithExistingCapture(width, height, fps, waitForOffer)
+                manager.startStreamWithExistingCapture(
+                    width = width,
+                    height = height,
+                    fps = fps,
+                    sessionId = sessionId,
+                    waitForOffer = waitForOffer,
+                )
                 ApiResponse.Success("reusing_capture")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to reuse active capture", e)
@@ -1828,45 +1855,72 @@ class ApiHandler(
         }
     }
 
-    fun stopStream(graceful: Boolean = false): ApiResponse {
+    fun stopStream(sessionId: String, graceful: Boolean = false): ApiResponse {
+        if (sessionId.isBlank()) {
+            return ApiResponse.Error("Missing required param: 'sessionId'")
+        }
+        val manager = WebRtcManager.getInstance(context)
+        if (!manager.isCurrentSession(sessionId)) {
+            Log.i(TAG, "stream/stop ignored for inactive sessionId=$sessionId")
+            return ApiResponse.Success("Already stopped")
+        }
         if (graceful) {
-            val manager = WebRtcManager.getInstance(context)
-            manager.requestGracefulStop("cloud_stop")
+            manager.stopStream(sessionId)
             return ApiResponse.Success("Stop stream requested")
         }
 
-        val intent = Intent(context, ScreenCaptureService::class.java).apply {
-            action = ScreenCaptureService.ACTION_STOP_STREAM
-        }
-        // stopService instead of startService to avoid IllegalStateException on API 26+
-        context.stopService(intent)
+        manager.stopStream(sessionId)
         return ApiResponse.Success("Stop stream requested")
     }
 
-    fun handleWebRtcAnswer(sdp: String): ApiResponse {
+    fun handleWebRtcAnswer(sdp: String, sessionId: String): ApiResponse {
+        if (sessionId.isBlank()) {
+            return ApiResponse.Error("Missing required param: 'sessionId'")
+        }
         val manager = WebRtcManager.getInstance(context)
         if (!manager.isStreamActive())
             return ApiResponse.Error("No active stream")
+        if (!manager.isCurrentSession(sessionId)) {
+            return ApiResponse.Error("No active stream for sessionId=$sessionId")
+        }
 
-        manager.handleAnswer(sdp)
+        manager.handleAnswer(sdp, sessionId)
         return ApiResponse.Success("SDP Answer processed")
     }
 
-    fun handleWebRtcIce(candidateSdp: String, sdpMid: String, sdpMLineIndex: Int): ApiResponse {
+    fun handleWebRtcIce(
+        candidateSdp: String,
+        sdpMid: String,
+        sdpMLineIndex: Int,
+        sessionId: String,
+    ): ApiResponse {
+        if (sessionId.isBlank()) {
+            return ApiResponse.Error("Missing required param: 'sessionId'")
+        }
         val manager = WebRtcManager.getInstance(context)
         if (!manager.isStreamActive())
             return ApiResponse.Error("No active stream")
+        if (!manager.isCurrentSession(sessionId)) {
+            return ApiResponse.Error("No active stream for sessionId=$sessionId")
+        }
 
         manager.handleIceCandidate(
-            IceCandidate(sdpMid, sdpMLineIndex, candidateSdp)
+            IceCandidate(sdpMid, sdpMLineIndex, candidateSdp),
+            sessionId,
         )
         return ApiResponse.Success("ICE Candidate processed")
     }
 
     fun handleWebRtcOffer(sdp: String, sessionId: String): ApiResponse {
+        if (sessionId.isBlank()) {
+            return ApiResponse.Error("Missing required param: 'sessionId'")
+        }
         val manager = WebRtcManager.getInstance(context)
         if (!manager.isStreamActive())
             return ApiResponse.Error("No active stream - call stream/start first")
+        if (!manager.isCurrentSession(sessionId)) {
+            return ApiResponse.Error("No active stream for sessionId=$sessionId")
+        }
 
         manager.handleOffer(sdp, sessionId)
         return ApiResponse.Success("SDP Offer processed, answer will be sent")

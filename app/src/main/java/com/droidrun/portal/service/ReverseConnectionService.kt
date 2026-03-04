@@ -106,7 +106,10 @@ class ReverseConnectionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "onStartCommand: intent=$intent, action=${intent?.action}, flags=$flags, startId=$startId")
+        Log.d(
+            TAG,
+            "onStartCommand: intent=$intent, action=${intent?.action}, flags=$flags, startId=$startId"
+        )
         if (intent?.action == ACTION_DISCONNECT) {
             Log.i(TAG, "onStartCommand: Disconnect requested via notification")
             disconnectByUser()
@@ -115,9 +118,15 @@ class ReverseConnectionService : Service() {
         Log.d(TAG, "onStartCommand: Ensuring foreground...")
         ensureForeground()
         val wasRunning = isServiceRunning.getAndSet(true)
-        Log.d(TAG, "onStartCommand: wasRunning=$wasRunning, now isServiceRunning=${isServiceRunning.get()}")
+        Log.d(
+            TAG,
+            "onStartCommand: wasRunning=$wasRunning, now isServiceRunning=${isServiceRunning.get()}"
+        )
         if (!wasRunning) {
-            Log.i(TAG, "onStartCommand: Starting Reverse Connection Service, calling connectToHost()")
+            Log.i(
+                TAG,
+                "onStartCommand: Starting Reverse Connection Service, calling connectToHost()"
+            )
             connectToHost()
         } else {
             Log.d(TAG, "onStartCommand: Service already running, skipping connectToHost()")
@@ -198,13 +207,26 @@ class ReverseConnectionService : Service() {
             val uri = URI(finalUrl)
             val headers = buildHeaders()
             val token = configManager.reverseConnectionToken
-            Log.d(TAG, "connectToHost: apiKey='${if (token.length > 20) "${token.take(10)}...${token.takeLast(10)} (${token.length})" else token}'")
+            Log.d(
+                TAG,
+                "connectToHost: apiKey='${
+                    if (token.length > 20) "${token.take(10)}...${
+                        token.takeLast(10)
+                    } (${token.length})" else token
+                }'"
+            )
             Log.d(TAG, "connectToHost: url='$finalUrl'")
-            Log.d(TAG, "connectToHost: headers=${headers.entries.joinToString { "${it.key}=${it.value}" }}")
+            Log.d(
+                TAG,
+                "connectToHost: headers=${headers.entries.joinToString { "${it.key}=${it.value}" }}"
+            )
 
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {
-                    Log.i(TAG, "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}")
+                    Log.i(
+                        TAG,
+                        "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}"
+                    )
                     reconnectStartedAtMs = 0L
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)
                     showReverseConnectionToastIfEnoughTimeIsPassed()
@@ -227,12 +249,15 @@ class ReverseConnectionService : Service() {
                         // Cancel any reconnect scheduled by onError (which fires before onClose)
                         isReconnecting.set(false)
                         handler.removeCallbacksAndMessages(null)
-                        val r = reason ?: return // isTerminalClose(null) is false, so reason is non-null here
+                        val r = reason
+                            ?: return // isTerminalClose(null) is false, so reason is non-null here
                         val state = when {
                             r.contains("401") || r.contains("Unauthorized") ->
                                 ConnectionState.UNAUTHORIZED
+
                             r.contains("403") || r.contains("Forbidden") ->
                                 ConnectionState.LIMIT_EXCEEDED
+
                             else -> ConnectionState.BAD_REQUEST
                         }
                         Log.w(TAG, "onClose: Terminal error ($state), tearing down media")
@@ -247,7 +272,11 @@ class ReverseConnectionService : Service() {
                 }
 
                 override fun onError(ex: Exception?) {
-                    Log.e(TAG, "onError: Connection Error: ${ex?.javaClass?.simpleName}: ${ex?.message}", ex)
+                    Log.e(
+                        TAG,
+                        "onError: Connection Error: ${ex?.javaClass?.simpleName}: ${ex?.message}",
+                        ex
+                    )
                     logNetworkState("onError")
                     // onClose usually follows; schedule reconnect as safety net
                     // (isReconnecting guard prevents duplicate scheduling)
@@ -266,6 +295,7 @@ class ReverseConnectionService : Service() {
     }
 
     private var isReconnecting = AtomicBoolean(false)
+
     @Volatile
     private var reconnectStartedAtMs = 0L
 
@@ -326,7 +356,7 @@ class ReverseConnectionService : Service() {
     private fun handleWsDisconnected() {
         val manager = WebRtcManager.getExistingInstance()
         if (manager != null) {
-            if (!manager.getStreamRequestId().isNullOrBlank()) {
+            if (manager.isStreamActive()) {
                 manager.notifyStreamStoppedAsync("ws_disconnected")
             }
             manager.requestGracefulStop("ws_disconnected")
@@ -341,11 +371,11 @@ class ReverseConnectionService : Service() {
      * (which will reuse existing capture via startStreamWithExistingCapture).
      */
     private fun notifyStreamStateAfterReconnect(manager: WebRtcManager) {
-        val requestId = manager.getStreamRequestId()
+        val hasAnySession = manager.getActiveSessionIds().isNotEmpty()
         if (shouldNotifyStreamStoppedAfterReconnect(
                 manager.isCaptureActive(),
                 manager.isStreamActive(),
-                requestId,
+                if (hasAnySession) "active" else null,
             )
         ) {
             // Use async variant — this runs on the WS receive thread
