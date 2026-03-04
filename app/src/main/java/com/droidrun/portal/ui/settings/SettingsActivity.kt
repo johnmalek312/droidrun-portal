@@ -23,10 +23,12 @@ import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.state.AppVisibilityTracker
 
-class SettingsActivity : AppCompatActivity() {
+class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private lateinit var configManager: ConfigManager
     private lateinit var binding: ActivitySettingsBinding
+    private var suppressSocketServerSwitchCallback = false
+    private var suppressWebSocketSwitchCallback = false
 
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -69,15 +71,19 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionSwitches()
+        syncServerSettingsFromConfig()
     }
 
     override fun onStart() {
         super.onStart()
+        configManager.addListener(this)
+        syncServerSettingsFromConfig()
         AppVisibilityTracker.setForeground(true)
     }
 
     override fun onStop() {
         super.onStop()
+        configManager.removeListener(this)
         persistReverseConnectionInputs()
         AppVisibilityTracker.setForeground(false)
     }
@@ -100,6 +106,7 @@ class SettingsActivity : AppCompatActivity() {
         // HTTP Server
         binding.switchSocketServerEnabled.isChecked = configManager.socketServerEnabled
         binding.switchSocketServerEnabled.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressSocketServerSwitchCallback) return@setOnCheckedChangeListener
             configManager.setSocketServerEnabledWithNotification(isChecked)
         }
 
@@ -123,6 +130,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun setupWebSocketSettings() {
         binding.switchWsEnabled.isChecked = configManager.websocketEnabled
         binding.switchWsEnabled.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressWebSocketSwitchCallback) return@setOnCheckedChangeListener
             configManager.setWebSocketEnabledWithNotification(isChecked)
         }
 
@@ -304,7 +312,11 @@ class SettingsActivity : AppCompatActivity() {
                     configManager.resetToDefaults()
                     ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
 
-                    android.widget.Toast.makeText(this, "Settings reset to defaults", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(
+                        this,
+                        "Settings reset to defaults",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
 
                     // Restart activity fresh (not recreate, which restores EditText state)
                     val intent = Intent(this, SettingsActivity::class.java)
@@ -341,7 +353,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun persistReverseConnectionInputs() {
         configManager.reverseConnectionUrl = binding.inputReverseUrl.text?.toString()?.trim() ?: ""
-        configManager.reverseConnectionToken = sanitizeToken(binding.inputReverseToken.text?.toString())
+        configManager.reverseConnectionToken =
+            sanitizeToken(binding.inputReverseToken.text?.toString())
     }
 
     private fun setupEventToggle(
@@ -352,6 +365,41 @@ class SettingsActivity : AppCompatActivity() {
 
         switch.setOnCheckedChangeListener { _, isChecked ->
             configManager.setEventEnabled(type, isChecked)
+        }
+    }
+
+    private fun syncServerSettingsFromConfig() {
+        updateSocketServerEnabledUi(configManager.socketServerEnabled)
+        updateSocketServerPortUi(configManager.socketServerPort)
+        updateWebSocketEnabledUi(configManager.websocketEnabled)
+        updateWebSocketPortUi(configManager.websocketPort)
+    }
+
+    private fun updateSocketServerEnabledUi(enabled: Boolean) {
+        suppressSocketServerSwitchCallback = true
+        binding.switchSocketServerEnabled.isChecked = enabled
+        suppressSocketServerSwitchCallback = false
+    }
+
+    private fun updateSocketServerPortUi(port: Int) {
+        val current = binding.inputSocketServerPort.text?.toString()
+        val expected = port.toString()
+        if (current != expected) {
+            binding.inputSocketServerPort.setText(expected)
+        }
+    }
+
+    private fun updateWebSocketEnabledUi(enabled: Boolean) {
+        suppressWebSocketSwitchCallback = true
+        binding.switchWsEnabled.isChecked = enabled
+        suppressWebSocketSwitchCallback = false
+    }
+
+    private fun updateWebSocketPortUi(port: Int) {
+        val current = binding.inputWsPort.text?.toString()
+        val expected = port.toString()
+        if (current != expected) {
+            binding.inputWsPort.setText(expected)
         }
     }
 
@@ -379,6 +427,34 @@ class SettingsActivity : AppCompatActivity() {
         val componentName = ComponentName(this, DroidrunNotificationListener::class.java)
         val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
         return flat?.contains(componentName.flattenToString()) == true
+    }
+
+    override fun onOverlayVisibilityChanged(visible: Boolean) {}
+
+    override fun onOverlayOffsetChanged(offset: Int) {}
+
+    override fun onSocketServerEnabledChanged(enabled: Boolean) {
+        runOnUiThread {
+            updateSocketServerEnabledUi(enabled)
+        }
+    }
+
+    override fun onSocketServerPortChanged(port: Int) {
+        runOnUiThread {
+            updateSocketServerPortUi(port)
+        }
+    }
+
+    override fun onWebSocketEnabledChanged(enabled: Boolean) {
+        runOnUiThread {
+            updateWebSocketEnabledUi(enabled)
+        }
+    }
+
+    override fun onWebSocketPortChanged(port: Int) {
+        runOnUiThread {
+            updateWebSocketPortUi(port)
+        }
     }
 
     companion object {

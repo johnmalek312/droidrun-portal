@@ -3,6 +3,11 @@ package com.droidrun.portal.service
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
 import android.graphics.Rect
 import android.util.Log
 import android.view.Display
@@ -29,16 +34,21 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
 import com.droidrun.portal.events.EventHub
 import com.droidrun.portal.events.PortalWebSocketServer
+import androidx.core.app.NotificationCompat
 
 @SuppressLint("AccessibilityPolicy")
 class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.ConfigChangeListener {
 
     companion object {
         const val TAG = "DroidrunAccessibility"
+        const val ACTION_DISABLE_LOCAL_WS_SERVER =
+            "com.droidrun.portal.action.DISABLE_LOCAL_WS_SERVER"
         private var instance: DroidrunAccessibilityService? = null
         private const val MIN_ELEMENT_SIZE = 5
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val AUTO_ACCEPT_FAILURE_TOAST_DEBOUNCE_MS = 10_000L
+        private const val LOCAL_WS_NOTIFICATION_CHANNEL_ID = "local_ws_connection_channel"
+        private const val LOCAL_WS_NOTIFICATION_ID = 2003
 
         // Periodic update constants
         private const val REFRESH_INTERVAL_MS = 250L // Update every 250ms
@@ -796,11 +806,13 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                     configManager,
                 ) {
                     showWebSocketServerStartedToastIfEnoughTimeIsPassed(port)
+                    showLocalWebSocketConnectionNotificationIfEligible()
                 }
                 websocketServer?.start()
                 Log.i(TAG, "WebSocket server started on port $port")
             }
         } catch (e: Exception) {
+            hideLocalWebSocketConnectionNotification()
             Log.e(TAG, "Failed to start WebSocket server", e)
         }
     }
@@ -844,7 +856,82 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             Log.i(TAG, "WebSocket server stopped")
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping WebSocket server", e)
+        } finally {
+            hideLocalWebSocketConnectionNotification()
         }
+    }
+
+    fun showLocalWebSocketConnectionNotificationIfEligible() {
+        if (!shouldShowLocalWebSocketConnectionNotification()) {
+            hideLocalWebSocketConnectionNotification()
+            return
+        }
+
+        try {
+            createLocalWebSocketNotificationChannel()
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            manager.notify(LOCAL_WS_NOTIFICATION_ID, createLocalWebSocketNotification())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show local WS connection notification", e)
+        }
+    }
+
+    fun hideLocalWebSocketConnectionNotification() {
+        try {
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            manager.cancel(LOCAL_WS_NOTIFICATION_ID)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to hide local WS connection notification", e)
+        }
+    }
+
+    private fun shouldShowLocalWebSocketConnectionNotification(): Boolean {
+        if (!configManager.websocketEnabled) return false
+        if (websocketServer == null) return false
+        if (ReverseConnectionService.getInstance() != null) return false
+        return true
+    }
+
+    private fun createLocalWebSocketNotificationChannel() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            LOCAL_WS_NOTIFICATION_CHANNEL_ID,
+            "Local Connection",
+            NotificationManager.IMPORTANCE_LOW,
+        )
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun createLocalWebSocketNotification(): Notification {
+        val intent = Intent(this, com.droidrun.portal.ui.MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            2,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val disableIntent = Intent(this, LocalWsNotificationActionReceiver::class.java).apply {
+            action = ACTION_DISABLE_LOCAL_WS_SERVER
+        }
+        val disablePendingIntent = PendingIntent.getBroadcast(
+            this,
+            3,
+            disableIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(this, LOCAL_WS_NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(getString(R.string.local_connection_service_title))
+            .setContentText(getString(R.string.local_connection_service_text))
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentIntent(pendingIntent)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                getString(R.string.disable_ws_server_action),
+                disablePendingIntent,
+            )
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
     }
 
     // ConfigManager.ConfigChangeListener implementation
@@ -1078,6 +1165,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         stopPeriodicUpdates()
         stopSocketServer()
         stopWebSocketServer()
+        hideLocalWebSocketConnectionNotification()
     }
 
     override fun onDestroy() {
@@ -1085,6 +1173,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         stopPeriodicUpdates()
         stopSocketServer()
         stopWebSocketServer()
+        hideLocalWebSocketConnectionNotification()
 
         clearElementList()
         configManager.removeListener(this)
