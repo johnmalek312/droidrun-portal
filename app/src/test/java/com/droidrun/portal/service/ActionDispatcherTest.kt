@@ -95,10 +95,20 @@ class ActionDispatcherTest {
     fun dispatch_install_supportsUrlsList_andHideOverlayFlag() {
         val apiHandler = mockk<ApiHandler>()
         every {
-            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), false)
+            apiHandler.installFromUrls(
+                listOf(
+                    "https://example.com/a.apk",
+                    "https://example.com/b.apk"
+                ), false
+            )
         } returns ApiResponse.Success("ok")
         every {
-            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), true)
+            apiHandler.installFromUrls(
+                listOf(
+                    "https://example.com/a.apk",
+                    "https://example.com/b.apk"
+                ), true
+            )
         } returns ApiResponse.Success("ok")
 
         val dispatcher = ActionDispatcher(apiHandler)
@@ -121,7 +131,12 @@ class ActionDispatcherTest {
         )
 
         verify(exactly = 1) {
-            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), false)
+            apiHandler.installFromUrls(
+                listOf(
+                    "https://example.com/a.apk",
+                    "https://example.com/b.apk"
+                ), false
+            )
         }
 
         // Explicitly passing hideOverlay=true should propagate
@@ -131,7 +146,12 @@ class ActionDispatcherTest {
 
         assertEquals(ApiResponse.Success("ok"), dispatcher.dispatch("install", explicitParams))
         verify(exactly = 1) {
-            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), true)
+            apiHandler.installFromUrls(
+                listOf(
+                    "https://example.com/a.apk",
+                    "https://example.com/b.apk"
+                ), true
+            )
         }
 
         // Explicitly passing hideOverlay=false should propagate
@@ -141,7 +161,75 @@ class ActionDispatcherTest {
 
         assertEquals(ApiResponse.Success("ok"), dispatcher.dispatch("install", falseParams))
         verify(exactly = 2) {
-            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), false)
+            apiHandler.installFromUrls(
+                listOf(
+                    "https://example.com/a.apk",
+                    "https://example.com/b.apk"
+                ), false
+            )
         }
+    }
+
+    @Test
+    fun dispatch_streamStop_requiresSessionId() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'sessionId'"),
+            dispatcher.dispatch(
+                "stream/stop",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+    }
+
+    @Test
+    fun dispatch_streamStop_passesSessionId() {
+        val apiHandler = mockk<ApiHandler>()
+        every {
+            apiHandler.stopStream(
+                "session-1",
+                graceful = true
+            )
+        } returns ApiResponse.Success("ok")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply { put("sessionId", "session-1") }
+
+        assertEquals(
+            ApiResponse.Success("ok"),
+            dispatcher.dispatch("stream/stop", params, ActionDispatcher.Origin.WEBSOCKET_REVERSE),
+        )
+        verify(exactly = 1) { apiHandler.stopStream("session-1", graceful = true) }
+    }
+
+    @Test
+    fun dispatch_webrtcAnswer_requiresSessionId() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply { put("sdp", "answer-sdp") }
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'sessionId'"),
+            dispatcher.dispatch("webrtc/answer", params, ActionDispatcher.Origin.WEBSOCKET_REVERSE),
+        )
+    }
+
+    @Test
+    fun dispatch_webrtcIce_requiresSessionId() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params =
+            JSONObject().apply {
+                put("candidate", "candidate:1 1 udp 1 0.0.0.0 9 typ host")
+                put("sdpMid", "0")
+                put("sdpMLineIndex", 0)
+            }
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'sessionId'"),
+            dispatcher.dispatch("webrtc/ice", params, ActionDispatcher.Origin.WEBSOCKET_REVERSE),
+        )
     }
 }

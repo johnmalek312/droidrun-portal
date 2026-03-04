@@ -94,12 +94,21 @@ class ScreenCaptureService : Service() {
                     webRtcManager.setReverseConnectionService(rcs)
 
                     val streamRequestId = webRtcManager.getStreamRequestId()
+                    if (streamRequestId.isNullOrBlank()) {
+                        Log.e(TAG, "Missing sessionId for stream start")
+                        webRtcManager.setStreamRequestId(null)
+                        @Suppress("DEPRECATION")
+                        stopForeground(true)
+                        stopSelf()
+                        return START_NOT_STICKY
+                    }
                     try {
                         webRtcManager.startStream(
-                            resultData,
-                            width,
-                            height,
-                            fps,
+                            permissionResultData = resultData,
+                            width = width,
+                            height = height,
+                            fps = fps,
+                            sessionId = streamRequestId,
                             waitForOffer = waitForOffer
                         )
                     } catch (e: Exception) {
