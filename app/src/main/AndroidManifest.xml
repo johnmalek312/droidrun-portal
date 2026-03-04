@@ -91,6 +91,11 @@
             android:enabled="true"
             android:exported="true"></provider>
 
+        <receiver
+            android:name=".service.LocalWsNotificationActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <service
             android:name=".input.DroidrunKeyboardIME"
             android:label="@string/keyboard_name"
