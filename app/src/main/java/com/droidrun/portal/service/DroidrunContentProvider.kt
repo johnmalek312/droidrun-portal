@@ -75,6 +75,16 @@ class DroidrunContentProvider : ContentProvider() {
         }
     }
 
+    private fun getAppVersion(): String {
+        val appContext = context ?: return "unknown"
+        return try {
+            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+                ?: "unknown"
+        } catch (e: Exception) {
+            "unknown"
+        }
+    }
+
     private fun getHandler(): ApiHandler? {
         if (apiHandler != null) return apiHandler
 
@@ -84,16 +94,7 @@ class DroidrunContentProvider : ContentProvider() {
                 stateRepo = StateRepository(service),
                 getKeyboardIME = { DroidrunKeyboardIME.getInstance() },
                 getPackageManager = { context!!.packageManager },
-                appVersionProvider = {
-                    try {
-                        context!!.packageManager.getPackageInfo(
-                            context!!.packageName,
-                            0
-                        ).versionName
-                    } catch (e: Exception) {
-                        "unknown"
-                    }
-                },
+                appVersionProvider = { getAppVersion() },
                 context = context!!
             )
         }
@@ -110,27 +111,38 @@ class DroidrunContentProvider : ContentProvider() {
         val cursor = MatrixCursor(arrayOf("result"))
 
         try {
-            val handler = getHandler()
-            val response = if (handler == null) {
-                ApiResponse.Error("Accessibility service not available")
-            } else {
-                when (uriMatcher.match(uri)) {
-                    A11Y_TREE -> handler.getTree()
-                    A11Y_TREE_FULL -> handler.getTreeFull(
-                        uri.getBooleanQueryParameter(
-                            "filter",
-                            true
-                        )
-                    )
+            val match = uriMatcher.match(uri)
+            val response = when (match) {
+                VERSION -> ApiResponse.Success(getAppVersion())
+                AUTH_TOKEN -> ApiResponse.Text(configManager.authToken)
+                else -> {
+                    val handler = getHandler()
+                    if (handler == null) {
+                        ApiResponse.Error("Accessibility service not available")
+                    } else {
+                        when (match) {
+                            A11Y_TREE -> handler.getTree()
+                            A11Y_TREE_FULL -> handler.getTreeFull(
+                                uri.getBooleanQueryParameter(
+                                    "filter",
+                                    true
+                                )
+                            )
 
-                    PHONE_STATE -> handler.getPhoneState()
-                    PING -> handler.ping()
-                    STATE -> handler.getState()
-                    STATE_FULL -> handler.getStateFull(uri.getBooleanQueryParameter("filter", true))
-                    PACKAGES -> handler.getPackages()
-                    VERSION -> handler.getVersion()
-                    AUTH_TOKEN -> ApiResponse.Text(configManager.authToken)
-                    else -> ApiResponse.Error("Unknown endpoint: ${uri.path}")
+                            PHONE_STATE -> handler.getPhoneState()
+                            PING -> handler.ping()
+                            STATE -> handler.getState()
+                            STATE_FULL -> handler.getStateFull(
+                                uri.getBooleanQueryParameter(
+                                    "filter",
+                                    true
+                                )
+                            )
+
+                            PACKAGES -> handler.getPackages()
+                            else -> ApiResponse.Error("Unknown endpoint: ${uri.path}")
+                        }
+                    }
                 }
             }
             cursor.addRow(arrayOf(response.toJson()))
