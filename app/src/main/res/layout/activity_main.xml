@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background_primary"
-    tools:context=".MainActivity">
+    tools:context=".ui.MainActivity">
 
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
@@ -264,9 +264,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
                     app:cardCornerRadius="12dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="1dp"
@@ -285,38 +282,84 @@
                             android:id="@+id/layout_disconnected"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal"
+                            android:orientation="vertical"
                             android:paddingHorizontal="16dp"
                             android:paddingVertical="14dp">
 
-                            <ImageView
-                                android:layout_width="22dp"
-                                android:layout_height="22dp"
-                                android:layout_marginEnd="12dp"
-                                android:src="@drawable/cloud"
-                                app:tint="@color/text_white" />
-
                             <LinearLayout
-                                android:layout_width="0dp"
+                                android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical">
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
 
-                                <TextView
-                                    android:layout_width="wrap_content"
+                                <ImageView
+                                    android:layout_width="22dp"
+                                    android:layout_height="22dp"
+                                    android:layout_marginEnd="12dp"
+                                    android:src="@drawable/cloud"
+                                    app:tint="@color/text_white" />
+
+                                <LinearLayout
+                                    android:layout_width="0dp"
                                     android:layout_height="wrap_content"
-                                    android:text="Connect to Mobilerun"
-                                    android:textColor="@color/text_white"
-                                    android:textSize="14sp" />
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text="@string/connect_to_mobilerun_title"
+                                        android:textColor="@color/text_white"
+                                        android:textSize="14sp"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="2dp"
+                                        android:text="@string/connect_to_mobilerun_subtitle"
+                                        android:textColor="@color/text_gray"
+                                        android:textSize="12sp" />
+
+                                </LinearLayout>
 
                             </LinearLayout>
 
-                            <ImageView
-                                android:layout_width="20dp"
-                                android:layout_height="20dp"
-                                android:src="@drawable/chevron_right"
-                                app:tint="@color/text_gray" />
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_sign_in_browser"
+                                style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="14dp"
+                                android:text="@string/sign_in_with_browser"
+                                android:textAllCaps="false"
+                                android:textColor="@color/text_white"
+                                app:backgroundTint="@color/status_success"
+                                app:cornerRadius="8dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_use_api_key"
+                                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:text="@string/use_api_key"
+                                android:textAllCaps="false"
+                                android:textColor="@color/text_white"
+                                app:cornerRadius="8dp"
+                                app:strokeColor="@color/stroke_gray" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_custom_connection"
+                                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:text="@string/custom_connection"
+                                android:textAllCaps="false"
+                                android:textColor="@color/text_white"
+                                app:cornerRadius="8dp"
+                                app:strokeColor="@color/stroke_gray" />
 
                         </LinearLayout>
 
@@ -517,9 +560,54 @@
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:orientation="horizontal"
+                                android:layout_marginTop="12dp"
+                                android:orientation="vertical">
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btn_error_primary_action"
+                                    style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/retry"
+                                    android:textAllCaps="false"
+                                    android:textColor="@color/text_white"
+                                    app:backgroundTint="@color/status_success"
+                                    app:cornerRadius="8dp" />
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btn_error_use_api_key"
+                                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="8dp"
+                                    android:text="@string/use_api_key"
+                                    android:textAllCaps="false"
+                                    android:textColor="@color/text_white"
+                                    android:visibility="gone"
+                                    app:cornerRadius="8dp"
+                                    app:strokeColor="@color/stroke_gray" />
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btn_error_custom_connection"
+                                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="8dp"
+                                    android:text="@string/custom_connection"
+                                    android:textAllCaps="false"
+                                    android:textColor="@color/text_white"
+                                    android:visibility="gone"
+                                    app:cornerRadius="8dp"
+                                    app:strokeColor="@color/stroke_gray" />
+
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
                                 android:gravity="end"
-                                android:layout_marginTop="8dp">
+                                android:orientation="horizontal">
 
                                 <com.google.android.material.button.MaterialButton
                                     android:id="@+id/btn_dismiss_error"
@@ -532,19 +620,6 @@
                                     android:paddingVertical="0dp"
                                     android:text="@string/dismiss"
                                     android:textColor="@color/text_gray"
-                                    android:textSize="12sp" />
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btn_retry_connection"
-                                    style="@style/Widget.MaterialComponents.Button.TextButton"
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="36dp"
-                                    android:minWidth="0dp"
-                                    android:minHeight="0dp"
-                                    android:paddingHorizontal="12dp"
-                                    android:paddingVertical="0dp"
-                                    android:text="@string/retry"
-                                    android:textColor="@color/status_success"
                                     android:textSize="12sp" />
 
                             </LinearLayout>
