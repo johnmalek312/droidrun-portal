@@ -169,6 +169,9 @@ class ConfigManager private constructor(private val context: Context) {
             return stored.ifBlank { DEFAULT_REVERSE_CONNECTION_URL }
         }
 
+    val defaultReverseConnectionUrl: String
+        get() = DEFAULT_REVERSE_CONNECTION_URL
+
     val reverseConnectionUrlForDisplay: String
         get() = reverseConnectionUrlOrDefault.replace(DEVICE_ID_PLACEHOLDER, deviceID)
 

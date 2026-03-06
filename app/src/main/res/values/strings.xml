@@ -94,6 +94,12 @@
     <string name="connect_with_api_key_subtitle">Enter your API key to connect</string>
     <string name="api_key_hint">API Key</string>
     <string name="connect_button">Connect</string>
+    <string name="connect_to_mobilerun_title">Connect to Mobilerun</string>
+    <string name="connect_to_mobilerun_subtitle">Choose how to authenticate this device</string>
+    <string name="sign_in_with_browser">Sign in with Browser</string>
+    <string name="use_api_key">Use API Key</string>
+    <string name="custom_connection">Custom Connection</string>
+    <string name="error_unauthorized_actionable">Your API key was rejected. Sign in again or enter a new key.</string>
 
     <!-- Connection States -->
     <string name="connection_failed_title">Connection Failed</string>
