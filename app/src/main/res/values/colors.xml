@@ -60,6 +60,19 @@
     <!-- Border and stroke colors -->
     <color name="stroke_gray">#2A2A2A</color>
 
+    <!-- Task prompt component colors -->
+    <color name="task_prompt_card_surface">#1A1A1A</color>
+    <color name="task_prompt_input_surface">#121212</color>
+    <color name="task_prompt_stroke">#2A2A2A</color>
+    <color name="task_prompt_text_primary">#FFFFFF</color>
+    <color name="task_prompt_text_secondary">#A0A0A0</color>
+    <color name="task_prompt_accent">#0D9373</color>
+    <color name="task_prompt_accent_light">#B2F0E0</color>
+    <color name="task_prompt_error">#FF6B6B</color>
+    <color name="task_prompt_chip_info_bg">#1D2A24</color>
+    <color name="task_prompt_chip_success_bg">#153328</color>
+    <color name="task_prompt_chip_error_bg">#3A1E22</color>
+
     <!-- HTTP method colors -->
     <color name="http_get">#0D9373</color>
     <color name="http_post">#2980B9</color>
