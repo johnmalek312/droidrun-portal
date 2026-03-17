@@ -84,7 +84,7 @@ class PortalCloudClient(
     private val okHttpClient: OkHttpClient = OkHttpClient(),
 ) {
     companion object {
-        const val DEFAULT_MODEL_ID = "openai/gpt-5.1"
+        const val DEFAULT_MODEL_ID = "google/gemini-3.1-flash-lite-preview"
         const val DEFAULT_REASONING = false
         const val DEFAULT_VISION = false
         const val DEFAULT_MAX_STEPS = 100
@@ -95,11 +95,16 @@ class PortalCloudClient(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val FALLBACK_MODEL_IDS = listOf(
             DEFAULT_MODEL_ID,
-            "openai/gpt-5.2",
-            "google/gemini-2.5-pro",
-            "google/gemini-3-flash",
-            "google/gemini-3-pro-preview",
-            "anthropic/claude-sonnet-4.5",
+            "google/gemini-3.1-pro-preview",
+            "google/gemini-3.1-flash-lite-preview",
+            "openai/gpt-5.4",
+            "openai/gpt-5.4-pro",
+            "qwen/qwen3.5-35b",
+            "moonshotai/kimi-k2.5",
+            "anthropic/claude-sonnet-4.6",
+            "anthropic/claude-opus-4.6",
+            "mobilerun/mobile-agent-fast",
+            "mobilerun/mobile-agent-thinking",
         )
 
         fun fallbackModelOptions(): List<PortalModelOption> = buildModelOptions(FALLBACK_MODEL_IDS)
