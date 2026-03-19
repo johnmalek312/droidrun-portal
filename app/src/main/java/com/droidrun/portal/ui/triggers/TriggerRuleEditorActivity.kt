@@ -2,7 +2,6 @@ package com.droidrun.portal.ui.triggers
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.provider.Settings
@@ -19,9 +18,7 @@ import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.databinding.ActivityTriggerRuleEditorBinding
 import com.droidrun.portal.databinding.DialogTriggerDurationPickerBinding
 import com.droidrun.portal.taskprompt.PortalCloudClient
-import com.droidrun.portal.taskprompt.PortalTaskSettings
 import com.droidrun.portal.triggers.TriggerBusyPolicy
-import com.droidrun.portal.triggers.TriggerCallState
 import com.droidrun.portal.triggers.TriggerEditorSupport
 import com.droidrun.portal.triggers.TriggerNetworkType
 import com.droidrun.portal.triggers.TriggerRule
@@ -38,6 +35,7 @@ import com.google.android.material.timepicker.TimeFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
+import androidx.core.net.toUri
 
 class TriggerRuleEditorActivity : AppCompatActivity() {
     companion object {
@@ -68,21 +66,16 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
     private val portalCloudClient = PortalCloudClient()
     private val configManager by lazy { ConfigManager.getInstance(this) }
     private val sourceOptions by lazy {
-        TriggerSource.values().map { LabeledValue(TriggerUiSupport.sourceLabel(it), it) }
+        TriggerSource.entries.map { LabeledValue(TriggerUiSupport.sourceLabel(it), it) }
     }
     private val matchModeOptions by lazy {
-        TriggerStringMatchMode.values().map { LabeledValue(it.name.replace('_', ' '), it) }
+        TriggerStringMatchMode.entries.map { LabeledValue(it.name.replace('_', ' '), it) }
     }
     private val thresholdComparisonOptions by lazy {
-        TriggerThresholdComparison.values().map { LabeledValue(it.name.replace('_', ' '), it) }
+        TriggerThresholdComparison.entries.map { LabeledValue(it.name.replace('_', ' '), it) }
     }
     private val networkTypeOptions by lazy {
-        listOf(LabeledValue("Any", null)) + TriggerNetworkType.values().map {
-            LabeledValue(it.name.replace('_', ' '), it)
-        }
-    }
-    private val callStateOptions by lazy {
-        listOf(LabeledValue("Any", null)) + TriggerCallState.values().map {
+        listOf(LabeledValue("Any", null)) + TriggerNetworkType.entries.map {
             LabeledValue(it.name.replace('_', ' '), it)
         }
     }
@@ -167,9 +160,6 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         binding.inputNetworkType.setAdapter(
             ArrayAdapter(this, android.R.layout.simple_list_item_1, networkTypeOptions.map { it.label }),
         )
-        binding.inputCallState.setAdapter(
-            ArrayAdapter(this, android.R.layout.simple_list_item_1, callStateOptions.map { it.label }),
-        )
         binding.inputRepeatMode.setAdapter(
             ArrayAdapter(this, android.R.layout.simple_list_item_1, repeatModeOptions.map { it.label }),
         )
@@ -194,7 +184,6 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         binding.inputMatchMode.setOnClickListener { binding.inputMatchMode.showDropDown() }
         binding.inputThresholdComparison.setOnClickListener { binding.inputThresholdComparison.showDropDown() }
         binding.inputNetworkType.setOnClickListener { binding.inputNetworkType.showDropDown() }
-        binding.inputCallState.setOnClickListener { binding.inputCallState.showDropDown() }
         binding.inputRepeatMode.setOnClickListener { binding.inputRepeatMode.showDropDown() }
         binding.inputRunLimitMode.setOnClickListener { binding.inputRunLimitMode.showDropDown() }
     }
@@ -234,6 +223,9 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             name = "",
             source = TriggerSource.NOTIFICATION_POSTED,
             promptTemplate = "",
+            cooldownSeconds = TriggerEditorSupport.defaultCooldownSecondsFor(
+                TriggerSource.NOTIFICATION_POSTED,
+            ),
             busyPolicy = TriggerBusyPolicy.SKIP,
         )
 
@@ -252,7 +244,6 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         binding.inputPackageName.setText(seed.packageName.orEmpty())
         binding.inputTitleFilter.setText(seed.titleFilter.orEmpty())
         binding.inputTextFilter.setText(seed.textFilter.orEmpty())
-        binding.inputActivityFilter.setText(seed.activityFilter.orEmpty())
         binding.inputThresholdValue.setText(seed.thresholdValue?.toString().orEmpty())
         binding.inputPhoneNumber.setText(seed.phoneNumberFilter.orEmpty())
         binding.inputMessageFilter.setText(seed.messageFilter.orEmpty())
@@ -281,10 +272,6 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         )
         binding.inputNetworkType.setText(
             networkTypeOptions.firstOrNull { it.value == seed.networkType }?.label.orEmpty(),
-            false,
-        )
-        binding.inputCallState.setText(
-            callStateOptions.firstOrNull { it.value == seed.callState }?.label.orEmpty(),
             false,
         )
         binding.inputRunLimitMode.setText(
@@ -336,6 +323,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             sourceOptions.firstOrNull { it.value == source }?.label.orEmpty(),
             false,
         )
+        binding.triggerSourceDescriptionText.text = TriggerUiSupport.sourceDescription(source)
         if (source == TriggerSource.TIME_DAILY || source == TriggerSource.TIME_WEEKLY) {
             binding.inputRepeatMode.setText(
                 repeatModeOptions.firstOrNull { it.value == source }?.label.orEmpty(),
@@ -349,26 +337,22 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         binding.packageNameLayout.isVisible = visibility.showPackageName
         binding.titleFilterLayout.isVisible = visibility.showTitleFilter
         binding.textFilterLayout.isVisible = visibility.showTextFilter
-        binding.activityFilterLayout.isVisible = visibility.showActivityFilter
         binding.thresholdValueLayout.isVisible = visibility.showThreshold
         binding.thresholdComparisonLayout.isVisible = visibility.showThreshold
         binding.networkTypeLayout.isVisible = visibility.showNetworkType
         binding.phoneNumberLayout.isVisible = visibility.showPhoneNumber
         binding.messageFilterLayout.isVisible = visibility.showMessageFilter
-        binding.callStateLayout.isVisible = visibility.showCallState
 
         binding.detailsCard.isVisible = listOf(
             binding.matchModeLayout,
             binding.packageNameLayout,
             binding.titleFilterLayout,
             binding.textFilterLayout,
-            binding.activityFilterLayout,
             binding.thresholdValueLayout,
             binding.thresholdComparisonLayout,
             binding.networkTypeLayout,
             binding.phoneNumberLayout,
             binding.messageFilterLayout,
-            binding.callStateLayout,
         ).any { it.isVisible }
 
         binding.timeCard.isVisible = visibility.showDelay || visibility.showAbsoluteTime || visibility.showRecurringTime
@@ -446,7 +430,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         startActivity(
             Intent(
                 Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                Uri.parse("package:$packageName"),
+                "package:$packageName".toUri(),
             ),
         )
     }
@@ -557,6 +541,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         binding.inputCooldownSecondsLayout.error = null
         binding.thresholdValueLayout.error = null
         binding.customRunLimitLayout.error = null
+        val capabilities = TriggerEditorSupport.capabilitiesFor(selectedSource)
 
         val ruleName = binding.inputRuleName.text?.toString()?.trim().orEmpty()
         val promptTemplate = binding.inputPromptTemplate.text?.toString()?.trim().orEmpty()
@@ -569,15 +554,14 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             return null
         }
 
-        val supportsCooldown = TriggerEditorSupport.capabilitiesFor(selectedSource).supportsCooldown
-        val cooldownSeconds = if (supportsCooldown) {
+        val cooldownSeconds = if (capabilities.supportsCooldown) {
             binding.inputCooldownSeconds.text?.toString()?.trim()
                 ?.takeIf { it.isNotBlank() }
                 ?.toIntOrNull()
         } else {
             0
         }
-        if (supportsCooldown &&
+        if (capabilities.supportsCooldown &&
             binding.inputCooldownSeconds.text?.isNotBlank() == true &&
             cooldownSeconds == null
         ) {
@@ -595,17 +579,20 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             }
         }
 
-        val maxLaunchCount = when {
-            !TriggerEditorSupport.capabilitiesFor(selectedSource).supportsRunLimit -> null
-            selectedRunLimitMode == RunLimitMode.ALWAYS -> null
-            selectedRunLimitMode == RunLimitMode.ONCE -> 1
-            else -> {
-                val customLimit = binding.inputCustomRunLimit.text?.toString()?.trim()?.toIntOrNull()
-                if (customLimit == null || customLimit <= 0) {
-                    binding.customRunLimitLayout.error = "Enter a positive number"
-                    return null
+        val maxLaunchCount = if (!capabilities.supportsRunLimit) {
+            null
+        } else {
+            when (selectedRunLimitMode) {
+                RunLimitMode.ALWAYS -> null
+                RunLimitMode.ONCE -> 1
+                RunLimitMode.CUSTOM -> {
+                    val customLimit = binding.inputCustomRunLimit.text?.toString()?.trim()?.toIntOrNull()
+                    if (customLimit == null || customLimit <= 0) {
+                        binding.customRunLimitLayout.error = "Enter a positive number"
+                        return null
+                    }
+                    customLimit
                 }
-                customLimit
             }
         }
 
@@ -677,13 +664,11 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
                 packageName = binding.inputPackageName.text?.toString(),
                 titleFilter = binding.inputTitleFilter.text?.toString(),
                 textFilter = binding.inputTextFilter.text?.toString(),
-                activityFilter = binding.inputActivityFilter.text?.toString(),
                 thresholdValue = thresholdValue,
                 thresholdComparison = selectedThresholdComparison(),
                 networkType = selectedNetworkType(),
                 phoneNumberFilter = binding.inputPhoneNumber.text?.toString(),
                 messageFilter = binding.inputMessageFilter.text?.toString(),
-                callState = selectedCallState(),
                 absoluteTimeMillis = absoluteTimeMillis,
                 delayMinutes = if (selectedSource == TriggerSource.TIME_DELAY) selectedDelayMinutes else null,
                 dailyHour = if (selectedSource == TriggerSource.TIME_DAILY ||
@@ -761,11 +746,6 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
     private fun selectedNetworkType(): TriggerNetworkType? {
         val label = binding.inputNetworkType.text?.toString()
         return networkTypeOptions.firstOrNull { it.label == label }?.value
-    }
-
-    private fun selectedCallState(): TriggerCallState? {
-        val label = binding.inputCallState.text?.toString()
-        return callStateOptions.firstOrNull { it.label == label }?.value
     }
 
     private fun selectedWeekdays(): List<Int> {

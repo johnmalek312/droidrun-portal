@@ -216,15 +216,6 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 // Filter out Android system dialogs and only keep app activities
                 currentActivityName = eventClassName
                 Log.d(TAG, "Activity changed: $currentActivityName")
-                EventHub.emit(
-                    PortalEvent(
-                        type = EventType.ACTIVITY_CHANGED,
-                        payload = JSONObject().apply {
-                            put("package", currentPackageName)
-                            put("activity", currentActivityName)
-                        }
-                    )
-                )
             }
         }
 

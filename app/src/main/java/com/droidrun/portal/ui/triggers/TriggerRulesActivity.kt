@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -16,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.droidrun.portal.databinding.ActivityTriggerRulesBinding
 import com.droidrun.portal.databinding.ItemTriggerRuleBinding
@@ -26,6 +26,8 @@ import com.droidrun.portal.triggers.TriggerRunRecord
 import com.droidrun.portal.triggers.TriggerRuntime
 import com.droidrun.portal.triggers.TriggerUiSupport
 import androidx.core.net.toUri
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.snackbar.Snackbar
 
 class TriggerRulesActivity : AppCompatActivity() {
 
@@ -43,13 +45,6 @@ class TriggerRulesActivity : AppCompatActivity() {
     private val requestSmsPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
-        refreshPermissionSummary()
-    }
-
-    private val requestPhonePermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) {
-        TriggerRuntime.onRulesChanged()
         refreshPermissionSummary()
     }
 
@@ -72,6 +67,9 @@ class TriggerRulesActivity : AppCompatActivity() {
         setupLists()
         binding.addRuleButton.setOnClickListener {
             startActivity(TriggerRuleEditorActivity.createIntent(this))
+        }
+        binding.clearRunsButton.setOnClickListener {
+            confirmClearRuns()
         }
 
         refreshPermissionSummary()
@@ -99,14 +97,6 @@ class TriggerRulesActivity : AppCompatActivity() {
                 Toast.makeText(this, "SMS permission already granted", Toast.LENGTH_SHORT).show()
             } else {
                 requestSmsPermissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
-            }
-        }
-
-        binding.buttonPhonePermission.setOnClickListener {
-            if (hasPermission(Manifest.permission.READ_PHONE_STATE)) {
-                Toast.makeText(this, "Phone permission already granted", Toast.LENGTH_SHORT).show()
-            } else {
-                requestPhonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
             }
         }
 
@@ -139,19 +129,33 @@ class TriggerRulesActivity : AppCompatActivity() {
         runAdapter = RunAdapter()
         binding.runsRecyclerView.layoutManager = LinearLayoutManager(this)
         binding.runsRecyclerView.adapter = runAdapter
+        ItemTouchHelper(
+            object : ItemTouchHelper.SimpleCallback(
+                0,
+                ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT,
+            ) {
+                override fun onMove(
+                    recyclerView: RecyclerView,
+                    viewHolder: RecyclerView.ViewHolder,
+                    target: RecyclerView.ViewHolder,
+                ): Boolean = false
+
+                override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                    handleRunSwiped(viewHolder.bindingAdapterPosition)
+                }
+            },
+        ).attachToRecyclerView(binding.runsRecyclerView)
     }
 
     private fun refreshPermissionSummary() {
         val notificationStatus = if (isNotificationAccessEnabled()) "granted" else "missing"
         val smsStatus = if (hasPermission(Manifest.permission.RECEIVE_SMS)) "granted" else "missing"
-        val phoneStatus = if (hasPermission(Manifest.permission.READ_PHONE_STATE)) "granted" else "missing"
         val contactsStatus = if (hasPermission(Manifest.permission.READ_CONTACTS)) "granted" else "missing"
 
         binding.permissionsSummaryText.text =
-            "Notification: $notificationStatus | SMS: $smsStatus | Phone: $phoneStatus | Contacts: $contactsStatus"
+            "Notification: $notificationStatus | SMS: $smsStatus | Contacts: $contactsStatus"
         binding.notificationAccessStatusText.text = notificationStatus.replaceFirstChar { it.uppercase() }
         binding.smsPermissionStatusText.text = smsStatus.replaceFirstChar { it.uppercase() }
-        binding.phonePermissionStatusText.text = phoneStatus.replaceFirstChar { it.uppercase() }
         binding.contactsPermissionStatusText.text = contactsStatus.replaceFirstChar { it.uppercase() }
 
         val showExactAlarmCard = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -174,6 +178,36 @@ class TriggerRulesActivity : AppCompatActivity() {
         runAdapter.submitList(runs)
         binding.emptyRulesText.visibility = if (rules.isEmpty()) View.VISIBLE else View.GONE
         binding.emptyRunsText.visibility = if (runs.isEmpty()) View.VISIBLE else View.GONE
+        binding.clearRunsButton.visibility = if (runs.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun handleRunSwiped(position: Int) {
+        val record = runAdapter.getItemOrNull(position)
+        if (record == null) {
+            runAdapter.notifyDataSetChanged()
+            return
+        }
+        TriggerRuntime.deleteRun(record.id)
+        reloadData()
+        Snackbar.make(binding.root, "Recent run removed", Snackbar.LENGTH_SHORT)
+            .setAction("Undo") {
+                TriggerRuntime.restoreRun(record)
+                reloadData()
+            }
+            .show()
+    }
+
+    private fun confirmClearRuns() {
+        if (runAdapter.itemCount == 0) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Clear recent runs")
+            .setMessage("Remove all recent trigger run records?")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Clear") { _, _ ->
+                TriggerRuntime.clearRuns()
+                reloadData()
+            }
+            .show()
     }
 
     private fun isNotificationAccessEnabled(): Boolean {
@@ -281,6 +315,10 @@ class TriggerRulesActivity : AppCompatActivity() {
             items.clear()
             items.addAll(records)
             notifyDataSetChanged()
+        }
+
+        fun getItemOrNull(position: Int): TriggerRunRecord? {
+            return items.getOrNull(position)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RunViewHolder {

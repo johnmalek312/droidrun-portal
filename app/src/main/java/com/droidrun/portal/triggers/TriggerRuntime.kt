@@ -6,16 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.database.Cursor
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
-import android.os.Build
-import android.provider.ContactsContract
-import android.telephony.TelephonyCallback
-import android.telephony.TelephonyManager
-import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.events.EventHub
@@ -37,14 +31,10 @@ object TriggerRuntime {
     private var batteryReceiver: BroadcastReceiver? = null
     private var screenReceiver: BroadcastReceiver? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    private var legacyPhoneStateObserver: LegacyPhoneStateObserver? = null
-    private var telephonyCallback: TriggerCallStateTelephonyCallback? = null
-    private var telephonyManager: TelephonyManager? = null
 
     private var lastBatteryLevel: Int? = null
     private var lastCharging: Boolean? = null
     private var lastNetworkType: TriggerNetworkType? = null
-    private var lastCallState: TriggerCallState? = null
 
     private val eventListener: (PortalEvent) -> Unit = { event ->
         handlePortalEvent(event)
@@ -59,7 +49,6 @@ object TriggerRuntime {
             normalizePersistedRules()
 
             if (initialized) {
-                refreshCallStateListener()
                 return
             }
 
@@ -67,7 +56,6 @@ object TriggerRuntime {
             registerBatteryReceiver()
             registerScreenReceiver()
             registerNetworkCallback()
-            refreshCallStateListener()
             scheduler.rescheduleAll(repository.listRules())
             initialized = true
         }
@@ -81,6 +69,21 @@ object TriggerRuntime {
     fun listRuns(limit: Int = 50): List<TriggerRunRecord> {
         if (!initialized) return emptyList()
         return repository.listRuns(limit)
+    }
+
+    fun restoreRun(record: TriggerRunRecord) {
+        initialize(appContext)
+        repository.addRun(record)
+    }
+
+    fun deleteRun(runId: String) {
+        initialize(appContext)
+        repository.deleteRun(runId)
+    }
+
+    fun clearRuns() {
+        initialize(appContext)
+        repository.clearRuns()
     }
 
     fun saveRule(rule: TriggerRule) {
@@ -108,7 +111,6 @@ object TriggerRuntime {
         initialize(appContext)
         normalizePersistedRules()
         scheduler.rescheduleAll(repository.listRules())
-        refreshCallStateListener()
     }
 
     fun handleScheduledRule(ruleId: String) {
@@ -149,20 +151,15 @@ object TriggerRuntime {
             EventType.NOTIFICATION_REMOVED -> portalEventToSignal(TriggerSource.NOTIFICATION_REMOVED, event)
             EventType.APP_ENTERED -> portalEventToSignal(TriggerSource.APP_ENTERED, event)
             EventType.APP_EXITED -> portalEventToSignal(TriggerSource.APP_EXITED, event)
-            EventType.ACTIVITY_CHANGED -> portalEventToSignal(TriggerSource.ACTIVITY_CHANGED, event)
             EventType.BATTERY_LOW -> portalEventToSignal(TriggerSource.BATTERY_LOW, event)
             EventType.BATTERY_OKAY -> portalEventToSignal(TriggerSource.BATTERY_OKAY, event)
             EventType.BATTERY_LEVEL_CHANGED -> portalEventToSignal(TriggerSource.BATTERY_LEVEL_CHANGED, event)
             EventType.POWER_CONNECTED -> portalEventToSignal(TriggerSource.POWER_CONNECTED, event)
             EventType.POWER_DISCONNECTED -> portalEventToSignal(TriggerSource.POWER_DISCONNECTED, event)
-            EventType.SCREEN_ON -> portalEventToSignal(TriggerSource.SCREEN_ON, event)
-            EventType.SCREEN_OFF -> portalEventToSignal(TriggerSource.SCREEN_OFF, event)
             EventType.USER_PRESENT -> portalEventToSignal(TriggerSource.USER_PRESENT, event)
             EventType.NETWORK_CONNECTED -> portalEventToSignal(TriggerSource.NETWORK_CONNECTED, event)
-            EventType.NETWORK_DISCONNECTED -> portalEventToSignal(TriggerSource.NETWORK_DISCONNECTED, event)
             EventType.NETWORK_TYPE_CHANGED -> portalEventToSignal(TriggerSource.NETWORK_TYPE_CHANGED, event)
             EventType.SMS_RECEIVED -> portalEventToSignal(TriggerSource.SMS_RECEIVED, event)
-            EventType.CALL_STATE_CHANGED -> portalEventToSignal(TriggerSource.CALL_STATE_CHANGED, event)
             else -> null
         } ?: return
 
@@ -378,15 +375,11 @@ object TriggerRuntime {
         screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent?) {
                 when (intent?.action) {
-                    Intent.ACTION_SCREEN_ON -> emitPortalEvent(EventType.SCREEN_ON)
-                    Intent.ACTION_SCREEN_OFF -> emitPortalEvent(EventType.SCREEN_OFF)
                     Intent.ACTION_USER_PRESENT -> emitPortalEvent(EventType.USER_PRESENT)
                 }
             }
         }
         val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_USER_PRESENT)
         }
         ContextCompat.registerReceiver(
@@ -430,11 +423,6 @@ object TriggerRuntime {
                 EventType.NETWORK_CONNECTED,
                 mapOf("network_type" to currentType.name),
             )
-        } else if (previousType != TriggerNetworkType.NONE && currentType == TriggerNetworkType.NONE) {
-            emitPortalEvent(
-                EventType.NETWORK_DISCONNECTED,
-                mapOf("network_type" to previousType.name),
-            )
         } else if (previousType != currentType) {
             emitPortalEvent(
                 EventType.NETWORK_TYPE_CHANGED,
@@ -458,120 +446,6 @@ object TriggerRuntime {
         }
     }
 
-    private fun refreshCallStateListener() {
-        val callRulesEnabled = repository.listRules().any {
-            it.enabled && it.source == TriggerSource.CALL_STATE_CHANGED
-        }
-        val hasPermission = ContextCompat.checkSelfPermission(
-            appContext,
-            Manifest.permission.READ_PHONE_STATE,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!callRulesEnabled || !hasPermission) {
-            clearCallStateListener()
-            return
-        }
-
-        val manager = appContext.getSystemService(TelephonyManager::class.java)
-        if (manager == null) {
-            clearCallStateListener()
-            return
-        }
-
-        telephonyManager = manager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (telephonyCallback != null) return
-            clearLegacyPhoneStateObserver()
-            val callback = TriggerCallStateTelephonyCallback { state ->
-                handleObservedCallState(state, phoneNumber = null)
-            }
-            manager.registerTelephonyCallback(appContext.mainExecutor, callback)
-            telephonyCallback = callback
-            return
-        }
-
-        if (legacyPhoneStateObserver != null) return
-        clearTelephonyCallback(manager)
-        registerLegacyPhoneStateListener(manager)
-    }
-
-    private fun handleObservedCallState(state: Int, phoneNumber: String?) {
-        val callState = when (state) {
-            TelephonyManager.CALL_STATE_RINGING -> TriggerCallState.RINGING
-            TelephonyManager.CALL_STATE_OFFHOOK -> TriggerCallState.OFFHOOK
-            else -> TriggerCallState.IDLE
-        }
-        if (lastCallState == null) {
-            lastCallState = callState
-            return
-        }
-        if (lastCallState == callState) return
-
-        val resolvedName = resolveContactName(phoneNumber)
-        emitPortalEvent(
-            EventType.CALL_STATE_CHANGED,
-            buildMap {
-                put("call_state", callState.name)
-                put("phone_number", phoneNumber.orEmpty())
-                if (!resolvedName.isNullOrBlank()) put("contact_name", resolvedName)
-            },
-        )
-        lastCallState = callState
-    }
-
-    private fun registerLegacyPhoneStateListener(manager: TelephonyManager) {
-        val observer = LegacyPhoneStateObserver(manager) { state, phoneNumber ->
-            handleObservedCallState(state, phoneNumber)
-        }
-        observer.register()
-        legacyPhoneStateObserver = observer
-    }
-
-    private fun clearLegacyPhoneStateObserver() {
-        legacyPhoneStateObserver?.unregister()
-        legacyPhoneStateObserver = null
-    }
-
-    private fun clearTelephonyCallback(manager: TelephonyManager? = telephonyManager) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        val callback = telephonyCallback ?: return
-        manager?.unregisterTelephonyCallback(callback)
-        telephonyCallback = null
-    }
-
-    private fun clearCallStateListener() {
-        val manager = telephonyManager ?: appContext.getSystemService(TelephonyManager::class.java)
-        clearLegacyPhoneStateObserver()
-        clearTelephonyCallback(manager)
-        telephonyManager = null
-        lastCallState = null
-    }
-
-    private fun resolveContactName(phoneNumber: String?): String? {
-        if (phoneNumber.isNullOrBlank()) return null
-        val hasPermission = ContextCompat.checkSelfPermission(
-            appContext,
-            Manifest.permission.READ_CONTACTS,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!hasPermission) return null
-
-        val uri = ContactsContract.PhoneLookup.CONTENT_FILTER_URI.buildUpon()
-            .appendPath(phoneNumber)
-            .build()
-        val cursor: Cursor? = appContext.contentResolver.query(
-            uri,
-            arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
-            null,
-            null,
-            null,
-        )
-        cursor.use {
-            if (it != null && it.moveToFirst()) {
-                return it.getString(0)
-            }
-        }
-        return null
-    }
-
     private fun emitPortalEvent(type: EventType, payload: Map<String, String> = emptyMap()) {
         EventHub.emit(
             PortalEvent(
@@ -579,37 +453,6 @@ object TriggerRuntime {
                 payload = JSONObject(payload),
             ),
         )
-    }
-
-    @RequiresApi(Build.VERSION_CODES.S)
-    private class TriggerCallStateTelephonyCallback(
-        private val onStateChanged: (Int) -> Unit,
-    ) : TelephonyCallback(), TelephonyCallback.CallStateListener {
-        override fun onCallStateChanged(state: Int) {
-            onStateChanged(state)
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private class LegacyPhoneStateObserver(
-        private val manager: TelephonyManager,
-        private val onStateChanged: (Int, String?) -> Unit,
-    ) {
-        private val listener = object : android.telephony.PhoneStateListener() {
-            @Deprecated("Legacy PhoneStateListener fallback for pre-S devices")
-            @Suppress("DEPRECATION")
-            override fun onCallStateChanged(state: Int, phoneNumber: String?) {
-                onStateChanged(state, phoneNumber)
-            }
-        }
-
-        fun register() {
-            manager.listen(listener, android.telephony.PhoneStateListener.LISTEN_CALL_STATE)
-        }
-
-        fun unregister() {
-            manager.listen(listener, android.telephony.PhoneStateListener.LISTEN_NONE)
-        }
     }
 
     private fun normalizeRule(rule: TriggerRule): TriggerRule {
@@ -656,16 +499,6 @@ object TriggerRuntime {
                 }
             }
 
-            TriggerSource.CALL_STATE_CHANGED -> {
-                if (ContextCompat.checkSelfPermission(
-                        appContext,
-                        Manifest.permission.READ_PHONE_STATE,
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    missing += Manifest.permission.READ_PHONE_STATE
-                }
-            }
-
             else -> Unit
         }
         return missing
@@ -687,11 +520,6 @@ object TriggerRuntime {
                 "package" to (rule.packageName ?: "com.whatsapp"),
             )
 
-            TriggerSource.ACTIVITY_CHANGED -> mapOf(
-                "package" to (rule.packageName ?: "com.whatsapp"),
-                "activity" to (rule.activityFilter ?: "com.whatsapp.HomeActivity"),
-            )
-
             TriggerSource.BATTERY_LOW,
             TriggerSource.BATTERY_OKAY,
             TriggerSource.BATTERY_LEVEL_CHANGED,
@@ -704,24 +532,16 @@ object TriggerRuntime {
             TriggerSource.POWER_DISCONNECTED,
             -> mapOf("battery_level" to "52")
 
-            TriggerSource.SCREEN_ON,
-            TriggerSource.SCREEN_OFF,
             TriggerSource.USER_PRESENT,
-            -> mapOf("screen" to rule.source.name.lowercase())
+            -> mapOf("user_present" to "true")
 
             TriggerSource.NETWORK_CONNECTED,
-            TriggerSource.NETWORK_DISCONNECTED,
             TriggerSource.NETWORK_TYPE_CHANGED,
             -> mapOf("network_type" to (rule.networkType ?: TriggerNetworkType.WIFI).name)
 
             TriggerSource.SMS_RECEIVED -> mapOf(
                 "phone_number" to (rule.phoneNumberFilter ?: "+15550001111"),
                 "message" to (rule.messageFilter ?: "Test SMS trigger"),
-            )
-
-            TriggerSource.CALL_STATE_CHANGED -> mapOf(
-                "phone_number" to (rule.phoneNumberFilter ?: "+15550001111"),
-                "call_state" to (rule.callState ?: TriggerCallState.RINGING).name,
             )
 
             TriggerSource.TIME_DELAY,

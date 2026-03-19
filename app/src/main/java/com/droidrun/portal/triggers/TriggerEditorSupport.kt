@@ -1,6 +1,8 @@
 package com.droidrun.portal.triggers
 
 object TriggerEditorSupport {
+    private const val DEFAULT_COOLDOWN_SECONDS = 60
+
     data class Capabilities(
         val supportsCooldown: Boolean = true,
         val supportsRunLimit: Boolean = true,
@@ -11,12 +13,10 @@ object TriggerEditorSupport {
         val showPackageName: Boolean = false,
         val showTitleFilter: Boolean = false,
         val showTextFilter: Boolean = false,
-        val showActivityFilter: Boolean = false,
         val showThreshold: Boolean = false,
         val showNetworkType: Boolean = false,
         val showPhoneNumber: Boolean = false,
         val showMessageFilter: Boolean = false,
-        val showCallState: Boolean = false,
         val showDelay: Boolean = false,
         val showAbsoluteTime: Boolean = false,
         val showRecurringTime: Boolean = false,
@@ -42,16 +42,9 @@ object TriggerEditorSupport {
                 showPackageName = true,
             )
 
-            TriggerSource.ACTIVITY_CHANGED -> Visibility(
-                showMatchMode = true,
-                showPackageName = true,
-                showActivityFilter = true,
-            )
-
             TriggerSource.BATTERY_LEVEL_CHANGED -> Visibility(showThreshold = true)
 
             TriggerSource.NETWORK_CONNECTED,
-            TriggerSource.NETWORK_DISCONNECTED,
             TriggerSource.NETWORK_TYPE_CHANGED,
             -> Visibility(showNetworkType = true)
 
@@ -59,12 +52,6 @@ object TriggerEditorSupport {
                 showMatchMode = true,
                 showPhoneNumber = true,
                 showMessageFilter = true,
-            )
-
-            TriggerSource.CALL_STATE_CHANGED -> Visibility(
-                showMatchMode = true,
-                showPhoneNumber = true,
-                showCallState = true,
             )
 
             TriggerSource.TIME_DELAY -> Visibility(
@@ -96,6 +83,14 @@ object TriggerEditorSupport {
         )
     }
 
+    fun defaultCooldownSecondsFor(source: TriggerSource): Int {
+        return if (capabilitiesFor(source).supportsCooldown) {
+            DEFAULT_COOLDOWN_SECONDS
+        } else {
+            0
+        }
+    }
+
     fun sanitize(rule: TriggerRule): TriggerRule {
         val visibility = visibilityFor(rule.source)
         val capabilities = capabilitiesFor(rule.source)
@@ -111,12 +106,10 @@ object TriggerEditorSupport {
             packageName = rule.packageName.takeIfVisible(visibility.showPackageName),
             titleFilter = rule.titleFilter.takeIfVisible(visibility.showTitleFilter),
             textFilter = rule.textFilter.takeIfVisible(visibility.showTextFilter),
-            activityFilter = rule.activityFilter.takeIfVisible(visibility.showActivityFilter),
             thresholdValue = if (visibility.showThreshold) rule.thresholdValue else null,
             networkType = if (visibility.showNetworkType) rule.networkType else null,
             phoneNumberFilter = rule.phoneNumberFilter.takeIfVisible(visibility.showPhoneNumber),
             messageFilter = rule.messageFilter.takeIfVisible(visibility.showMessageFilter),
-            callState = if (visibility.showCallState) rule.callState else null,
             absoluteTimeMillis = when {
                 visibility.showAbsoluteTime -> rule.absoluteTimeMillis
                 visibility.showDelay -> rule.absoluteTimeMillis

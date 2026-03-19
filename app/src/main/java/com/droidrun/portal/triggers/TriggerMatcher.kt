@@ -8,11 +8,9 @@ object TriggerMatcher {
         if (!matchesPackage(rule.packageName, payload["package"], rule.stringMatchMode)) return false
         if (!matchesText(rule.titleFilter, payload["title"], rule.stringMatchMode)) return false
         if (!matchesText(rule.textFilter, payload["text"], rule.stringMatchMode)) return false
-        if (!matchesText(rule.activityFilter, payload["activity"], rule.stringMatchMode)) return false
         if (!matchesText(rule.phoneNumberFilter, payload["phone_number"], rule.stringMatchMode)) return false
         if (!matchesText(rule.messageFilter, payload["message"], rule.stringMatchMode)) return false
         if (!matchesNetwork(rule.networkType, payload["network_type"])) return false
-        if (!matchesCallState(rule.callState, payload["call_state"])) return false
         if (!matchesThreshold(rule, payload["battery_level"])) return false
 
         return true
@@ -49,11 +47,6 @@ object TriggerMatcher {
     }
 
     private fun matchesNetwork(expected: TriggerNetworkType?, actual: String?): Boolean {
-        if (expected == null) return true
-        return actual.equals(expected.name, ignoreCase = true)
-    }
-
-    private fun matchesCallState(expected: TriggerCallState?, actual: String?): Boolean {
         if (expected == null) return true
         return actual.equals(expected.name, ignoreCase = true)
     }

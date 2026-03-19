@@ -88,6 +88,14 @@
 
                     </com.google.android.material.textfield.TextInputLayout>
 
+                    <TextView
+                        android:id="@+id/triggerSourceDescriptionText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textColor="@color/text_gray"
+                        android:textSize="13sp" />
+
                     <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/inputPromptTemplateLayout"
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
@@ -260,22 +268,6 @@
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/activityFilterLayout"
-                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:hint="Activity filter">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/inputActivityFilter"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:textColor="@color/text_white" />
-
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/thresholdValueLayout"
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
@@ -354,23 +346,6 @@
                             android:id="@+id/inputMessageFilter"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:textColor="@color/text_white" />
-
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/callStateLayout"
-                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:hint="Call state">
-
-                        <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                            android:id="@+id/inputCallState"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="none"
                             android:textColor="@color/text_white" />
 
                     </com.google.android.material.textfield.TextInputLayout>

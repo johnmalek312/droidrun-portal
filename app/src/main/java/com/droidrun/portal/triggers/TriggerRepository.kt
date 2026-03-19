@@ -89,9 +89,20 @@ class TriggerRepository private constructor(context: Context) {
             add(record)
             addAll(listRuns(MAX_RUN_RECORDS - 1))
         }
-        sharedPrefs.edit {
-            putString(KEY_RUNS_JSON, TriggerJson.runsToJsonArray(updatedRuns).toString())
-        }
+        persistRuns(updatedRuns)
+    }
+
+    @Synchronized
+    fun deleteRun(runId: String) {
+        persistRuns(
+            TriggerJson.parseRuns(sharedPrefs.getString(KEY_RUNS_JSON, null))
+                .filterNot { it.id == runId },
+        )
+    }
+
+    @Synchronized
+    fun clearRuns() {
+        persistRuns(emptyList())
     }
 
     @Synchronized
@@ -108,13 +119,18 @@ class TriggerRepository private constructor(context: Context) {
         if (schemaVersion >= TriggerJson.CURRENT_SCHEMA_VERSION) return
 
         val migratedRules = TriggerJson.parseRules(sharedPrefs.getString(KEY_RULES_JSON, null))
+        val migratedRuns = TriggerJson.parseRuns(sharedPrefs.getString(KEY_RUNS_JSON, null))
         sharedPrefs.edit(commit = true) {
             if (!sharedPrefs.contains(KEY_RULES_JSON)) {
                 putString(KEY_RULES_JSON, "[]")
             } else {
                 putString(KEY_RULES_JSON, TriggerJson.rulesToJsonArray(migratedRules).toString())
             }
-            if (!sharedPrefs.contains(KEY_RUNS_JSON)) putString(KEY_RUNS_JSON, "[]")
+            if (!sharedPrefs.contains(KEY_RUNS_JSON)) {
+                putString(KEY_RUNS_JSON, "[]")
+            } else {
+                putString(KEY_RUNS_JSON, TriggerJson.runsToJsonArray(migratedRuns).toString())
+            }
             putInt(KEY_SCHEMA_VERSION, TriggerJson.CURRENT_SCHEMA_VERSION)
         }
     }
@@ -122,6 +138,12 @@ class TriggerRepository private constructor(context: Context) {
     private fun persistRules(rules: List<TriggerRule>) {
         sharedPrefs.edit {
             putString(KEY_RULES_JSON, TriggerJson.rulesToJsonArray(rules).toString())
+        }
+    }
+
+    private fun persistRuns(runs: List<TriggerRunRecord>) {
+        sharedPrefs.edit {
+            putString(KEY_RUNS_JSON, TriggerJson.runsToJsonArray(runs).toString())
         }
     }
 }

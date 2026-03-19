@@ -15,20 +15,15 @@ enum class TriggerSource {
     NOTIFICATION_REMOVED,
     APP_ENTERED,
     APP_EXITED,
-    ACTIVITY_CHANGED,
     BATTERY_LOW,
     BATTERY_OKAY,
     BATTERY_LEVEL_CHANGED,
     POWER_CONNECTED,
     POWER_DISCONNECTED,
-    SCREEN_ON,
-    SCREEN_OFF,
     USER_PRESENT,
     NETWORK_CONNECTED,
-    NETWORK_DISCONNECTED,
     NETWORK_TYPE_CHANGED,
     SMS_RECEIVED,
-    CALL_STATE_CHANGED,
 }
 
 enum class TriggerBusyPolicy {
@@ -53,12 +48,6 @@ enum class TriggerThresholdComparison {
     AT_OR_ABOVE,
 }
 
-enum class TriggerCallState {
-    IDLE,
-    RINGING,
-    OFFHOOK,
-}
-
 enum class TriggerRunDisposition {
     MATCHED,
     LAUNCHED,
@@ -81,13 +70,11 @@ data class TriggerRule(
     val packageName: String? = null,
     val titleFilter: String? = null,
     val textFilter: String? = null,
-    val activityFilter: String? = null,
     val thresholdValue: Int? = null,
     val thresholdComparison: TriggerThresholdComparison = TriggerThresholdComparison.AT_OR_BELOW,
     val networkType: TriggerNetworkType? = null,
     val phoneNumberFilter: String? = null,
     val messageFilter: String? = null,
-    val callState: TriggerCallState? = null,
     val absoluteTimeMillis: Long? = null,
     val delayMinutes: Int? = null,
     val dailyHour: Int? = null,
@@ -145,7 +132,7 @@ data class TriggerSignal(
 )
 
 object TriggerJson {
-    const val CURRENT_SCHEMA_VERSION = 4
+    const val CURRENT_SCHEMA_VERSION = 5
 
     fun rulesToJsonArray(rules: List<TriggerRule>): JSONArray {
         return JSONArray().apply {
@@ -160,7 +147,8 @@ object TriggerJson {
             buildList {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
-                    add(ruleFromJson(item))
+                    val rule = ruleFromJsonOrNull(item) ?: continue
+                    add(rule)
                 }
             }
         } catch (_: Exception) {
@@ -181,7 +169,8 @@ object TriggerJson {
             buildList {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
-                    add(runFromJson(item))
+                    val run = runFromJsonOrNull(item) ?: continue
+                    add(run)
                 }
             }
         } catch (_: Exception) {
@@ -202,13 +191,11 @@ object TriggerJson {
             putOpt("packageName", rule.packageName)
             putOpt("titleFilter", rule.titleFilter)
             putOpt("textFilter", rule.textFilter)
-            putOpt("activityFilter", rule.activityFilter)
             putOpt("thresholdValue", rule.thresholdValue)
             put("thresholdComparison", rule.thresholdComparison.name)
             putOpt("networkType", rule.networkType?.name)
             putOpt("phoneNumberFilter", rule.phoneNumberFilter)
             putOpt("messageFilter", rule.messageFilter)
-            putOpt("callState", rule.callState?.name)
             putOpt("absoluteTimeMillis", rule.absoluteTimeMillis)
             putOpt("delayMinutes", rule.delayMinutes)
             putOpt("dailyHour", rule.dailyHour)
@@ -230,11 +217,16 @@ object TriggerJson {
     }
 
     fun ruleFromJson(json: JSONObject): TriggerRule {
+        return ruleFromJsonOrNull(json) ?: error("Unsupported trigger source")
+    }
+
+    fun ruleFromJsonOrNull(json: JSONObject): TriggerRule? {
+        val source = parseSource(json.optString("source")) ?: return null
         return TriggerRule(
             id = json.optString("id").ifBlank { UUID.randomUUID().toString() },
             enabled = json.optBoolean("enabled", true),
             name = json.optString("name", ""),
-            source = parseEnum(json.optString("source"), TriggerSource.TIME_DELAY),
+            source = source,
             promptTemplate = json.optString("promptTemplate", ""),
             cooldownSeconds = json.optInt("cooldownSeconds", 0),
             busyPolicy = parseEnum(json.optString("busyPolicy"), TriggerBusyPolicy.SKIP),
@@ -245,7 +237,6 @@ object TriggerJson {
             packageName = json.optNullableString("packageName"),
             titleFilter = json.optNullableString("titleFilter"),
             textFilter = json.optNullableString("textFilter"),
-            activityFilter = json.optNullableString("activityFilter"),
             thresholdValue = json.optNullableInt("thresholdValue"),
             thresholdComparison = parseEnum(
                 json.optString("thresholdComparison"),
@@ -256,9 +247,6 @@ object TriggerJson {
                 ?.let { parseEnum(it, TriggerNetworkType.OTHER) },
             phoneNumberFilter = json.optNullableString("phoneNumberFilter"),
             messageFilter = json.optNullableString("messageFilter"),
-            callState = json.optString("callState")
-                .takeIf { it.isNotBlank() }
-                ?.let { parseEnum(it, TriggerCallState.IDLE) },
             absoluteTimeMillis = json.optNullableLong("absoluteTimeMillis"),
             delayMinutes = json.optNullableInt("delayMinutes"),
             dailyHour = json.optNullableInt("dailyHour"),
@@ -289,11 +277,16 @@ object TriggerJson {
     }
 
     fun runFromJson(json: JSONObject): TriggerRunRecord {
+        return runFromJsonOrNull(json) ?: error("Unsupported trigger source")
+    }
+
+    fun runFromJsonOrNull(json: JSONObject): TriggerRunRecord? {
+        val source = parseSource(json.optString("source")) ?: return null
         return TriggerRunRecord(
             id = json.optString("id").ifBlank { UUID.randomUUID().toString() },
             ruleId = json.optString("ruleId", ""),
             ruleName = json.optString("ruleName", ""),
-            source = parseEnum(json.optString("source"), TriggerSource.TIME_DELAY),
+            source = source,
             disposition = parseEnum(
                 json.optString("disposition"),
                 TriggerRunDisposition.MATCHED,
@@ -320,14 +313,23 @@ object TriggerJson {
         if (json == null) return null
         return TaskPromptSettingsConstraints.clamp(
             PortalTaskSettings(
-            llmModel = json.optString("llmModel"),
-            reasoning = json.optBoolean("reasoning"),
-            vision = json.optBoolean("vision"),
-            maxSteps = json.optInt("maxSteps"),
-            temperature = json.optDouble("temperature"),
-            executionTimeout = json.optInt("executionTimeout"),
+                llmModel = json.optString("llmModel"),
+                reasoning = json.optBoolean("reasoning"),
+                vision = json.optBoolean("vision"),
+                maxSteps = json.optInt("maxSteps"),
+                temperature = json.optDouble("temperature"),
+                executionTimeout = json.optInt("executionTimeout"),
             ),
         )
+    }
+
+    private fun parseSource(raw: String?): TriggerSource? {
+        if (raw.isNullOrBlank()) return null
+        return try {
+            enumValueOf<TriggerSource>(raw)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun <T : Enum<T>> parseEnum(raw: String?, fallback: T): T {
