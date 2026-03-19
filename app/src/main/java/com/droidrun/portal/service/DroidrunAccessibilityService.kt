@@ -34,7 +34,11 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
 import com.droidrun.portal.events.EventHub
 import com.droidrun.portal.events.PortalWebSocketServer
+import com.droidrun.portal.events.model.EventType
+import com.droidrun.portal.events.model.PortalEvent
+import com.droidrun.portal.triggers.TriggerRuntime
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
 
 @SuppressLint("AccessibilityPolicy")
 class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.ConfigChangeListener {
@@ -109,6 +113,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
         // Initialize Event System
         EventHub.init(configManager)
+        TriggerRuntime.initialize(this)
 
         // Initialize SocketServer with ApiHandler
         val stateRepo = StateRepository(this)
@@ -136,6 +141,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         super.onServiceConnected()
         overlayManager.showOverlay()
         instance = this
+        TriggerRuntime.initialize(this)
 
         serviceInfo = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPES_ALL_MASK
@@ -168,6 +174,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val eventPackage = event?.packageName?.toString() ?: ""
         val eventClassName = event?.className?.toString() ?: ""
+        val previousPackage = currentPackageName
 
         // Detect package changes
         if (eventPackage.isNotEmpty() && eventPackage != currentPackageName && currentPackageName.isNotEmpty()) {
@@ -176,6 +183,30 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
         if (eventPackage.isNotEmpty()) {
             currentPackageName = eventPackage
+            if (previousPackage.isNotEmpty() && previousPackage != eventPackage) {
+                EventHub.emit(
+                    PortalEvent(
+                        type = EventType.APP_EXITED,
+                        payload = JSONObject().apply {
+                            put("package", previousPackage)
+                            put("next_package", eventPackage)
+                        }
+                    )
+                )
+            }
+            if (previousPackage != eventPackage) {
+                EventHub.emit(
+                    PortalEvent(
+                        type = EventType.APP_ENTERED,
+                        payload = JSONObject().apply {
+                            put("package", eventPackage)
+                            if (previousPackage.isNotEmpty()) {
+                                put("previous_package", previousPackage)
+                            }
+                        }
+                    )
+                )
+            }
         }
 
         // Capture activity name from TYPE_WINDOW_STATE_CHANGED events
@@ -185,6 +216,15 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 // Filter out Android system dialogs and only keep app activities
                 currentActivityName = eventClassName
                 Log.d(TAG, "Activity changed: $currentActivityName")
+                EventHub.emit(
+                    PortalEvent(
+                        type = EventType.ACTIVITY_CHANGED,
+                        payload = JSONObject().apply {
+                            put("package", currentPackageName)
+                            put("activity", currentActivityName)
+                        }
+                    )
+                )
             }
         }
 

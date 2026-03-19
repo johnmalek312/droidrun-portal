@@ -1,27 +1,28 @@
 package com.droidrun.portal.ui.settings
 
+import android.content.ComponentName
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.databinding.ActivitySettingsBinding
 import com.droidrun.portal.events.model.EventType
-import android.provider.Settings
-import android.content.Intent
-import android.content.ComponentName
-import android.net.Uri
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.activity.result.contract.ActivityResultContracts
 import com.droidrun.portal.service.DroidrunNotificationListener
 import com.droidrun.portal.service.ReverseConnectionService
-
-import com.droidrun.portal.ui.addWhitespaceStrippingWatcher
+import com.droidrun.portal.state.AppVisibilityTracker
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
-import com.droidrun.portal.state.AppVisibilityTracker
+import com.droidrun.portal.triggers.TriggerRepository
+import com.droidrun.portal.ui.addWhitespaceStrippingWatcher
+import com.droidrun.portal.ui.triggers.TriggerRulesActivity
 
 class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
@@ -51,15 +52,14 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         configManager = ConfigManager.getInstance(this)
 
         setupToolbar()
-        setupReverseConnectionSettings()
-        setupPermissions()
-        setupEventFilters()
         setupDevMode()
         setupServerSettings()
         setupWebSocketSettings()
+        setupReverseConnectionSettings()
+        setupPermissions()
+        setupAutomation()
+        setupEventFilters()
         setupResetButton()
-
-        setupConnectionStateObserver()
     }
 
     private fun setupToolbar() {
@@ -155,10 +155,8 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.switchReverseEnabled.isChecked = configManager.reverseConnectionEnabled
         binding.inputReverseUrl.setText(configManager.reverseConnectionUrl)
         binding.inputReverseToken.setText(configManager.reverseConnectionToken)
-
         binding.inputReverseToken.addWhitespaceStrippingWatcher()
 
-        // Toggle Service on Switch Change
         binding.switchReverseEnabled.setOnCheckedChangeListener { _, isChecked ->
             configManager.reverseConnectionEnabled = isChecked
 
@@ -167,16 +165,13 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 ReverseConnectionService::class.java,
             )
             if (isChecked) {
-                // Ensure URL is saved before starting
                 val url = binding.inputReverseUrl.text.toString().ifBlank {
                     configManager.reverseConnectionUrlOrDefault
                 }
-
-                val apiKey = sanitizeToken(binding.inputReverseToken.text?.toString())
+                val token = sanitizeToken(binding.inputReverseToken.text?.toString())
                 binding.inputReverseToken.error = null
-
                 configManager.reverseConnectionUrl = url
-                configManager.reverseConnectionToken = apiKey
+                configManager.reverseConnectionToken = token
                 startForegroundService(intent)
             } else {
                 intent.action = ReverseConnectionService.ACTION_DISCONNECT
@@ -197,9 +192,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
 
         binding.inputReverseToken.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                val apiKey = sanitizeToken(v.text?.toString())
+                val token = sanitizeToken(v.text?.toString())
                 binding.inputReverseToken.error = null
-                configManager.reverseConnectionToken = apiKey
+                configManager.reverseConnectionToken = token
                 binding.inputReverseToken.clearFocus()
                 restartServiceIfEnabled()
                 true
@@ -208,13 +203,11 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             }
         }
 
-        // Screen Share Auto-Accept
         binding.switchScreenShareAutoAccept.isChecked = configManager.screenShareAutoAcceptEnabled
         binding.switchScreenShareAutoAccept.setOnCheckedChangeListener { _, isChecked ->
             configManager.screenShareAutoAcceptEnabled = isChecked
         }
 
-        // Install Auto-Accept
         binding.switchInstallAutoAccept.isChecked = configManager.installAutoAcceptEnabled
         binding.switchInstallAutoAccept.setOnCheckedChangeListener { _, isChecked ->
             configManager.installAutoAcceptEnabled = isChecked
@@ -297,42 +290,39 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         setupEventToggle(binding.switchEventNotification, EventType.NOTIFICATION)
     }
 
+    private fun setupAutomation() {
+        binding.openTriggersButton.setOnClickListener {
+            startActivity(TriggerRulesActivity.createIntent(this))
+        }
+    }
+
     private fun setupResetButton() {
         binding.btnResetSettings.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Reset to Defaults")
                 .setMessage("This will reset all settings to their default values and disconnect any active connections. Continue?")
                 .setPositiveButton("Reset") { _, _ ->
-                    // Disconnect service before resetting
                     val serviceIntent = Intent(this, ReverseConnectionService::class.java).apply {
                         action = ReverseConnectionService.ACTION_DISCONNECT
                     }
                     startService(serviceIntent)
 
                     configManager.resetToDefaults()
+                    TriggerRepository.getInstance(this).clearAll()
                     ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
 
                     android.widget.Toast.makeText(
                         this,
                         "Settings reset to defaults",
-                        android.widget.Toast.LENGTH_SHORT
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
 
-                    // Restart activity fresh (not recreate, which restores EditText state)
                     val intent = Intent(this, SettingsActivity::class.java)
                     finish()
                     startActivity(intent)
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
-        }
-    }
-
-    private fun setupConnectionStateObserver() {
-        ConnectionStateManager.connectionState.observe(this) { state ->
-            if (state == ConnectionState.DISCONNECTED && configManager.reverseConnectionEnabled) {
-                // The toggle listener handles user intent.
-            }
         }
     }
 

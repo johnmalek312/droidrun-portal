@@ -10,6 +10,7 @@ import com.droidrun.portal.taskprompt.PortalActiveTaskRecord
 import com.droidrun.portal.taskprompt.PortalCloudClient
 import com.droidrun.portal.taskprompt.PortalTaskSettings
 import com.droidrun.portal.taskprompt.PortalTaskTracking
+import com.droidrun.portal.taskprompt.TaskPromptSettingsConstraints
 
 /**
  * Centralized configuration manager for Droidrun Portal
@@ -38,18 +39,26 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_DEV_MODE_ENABLED = "dev_mode_enabled"
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
         private const val KEY_TASK_PROMPT_MODEL = "task_prompt_model"
+        private const val KEY_TASK_PROMPT_DEFAULT_MODEL = "task_prompt_default_model"
         private const val KEY_TASK_PROMPT_REASONING = "task_prompt_reasoning"
         private const val KEY_TASK_PROMPT_VISION = "task_prompt_vision"
         private const val KEY_TASK_PROMPT_MAX_STEPS = "task_prompt_max_steps"
         private const val KEY_TASK_PROMPT_TEMPERATURE = "task_prompt_temperature"
         private const val KEY_TASK_PROMPT_TIMEOUT = "task_prompt_timeout"
+        private const val KEY_TASK_PROMPT_RETURN_TO_PORTAL = "task_prompt_return_to_portal"
         private const val KEY_ACTIVE_TASK_ID = "active_task_id"
         private const val KEY_ACTIVE_TASK_PROMPT_PREVIEW = "active_task_prompt_preview"
         private const val KEY_ACTIVE_TASK_STARTED_AT_MS = "active_task_started_at_ms"
         private const val KEY_ACTIVE_TASK_EXECUTION_TIMEOUT_SEC = "active_task_execution_timeout_sec"
         private const val KEY_ACTIVE_TASK_POLL_DEADLINE_MS = "active_task_poll_deadline_ms"
         private const val KEY_ACTIVE_TASK_LAST_STATUS = "active_task_last_status"
+        private const val KEY_ACTIVE_TASK_STARTED_TOAST_SHOWN = "active_task_started_toast_shown"
         private const val KEY_ACTIVE_TASK_TERMINAL_TOAST_SHOWN = "active_task_terminal_toast_shown"
+        private const val KEY_ACTIVE_TASK_TRIGGER_RULE_ID = "active_task_trigger_rule_id"
+        private const val KEY_ACTIVE_TASK_RETURN_TO_PORTAL = "active_task_return_to_portal"
+        private const val KEY_ACTIVE_TASK_TERMINAL_RETURN_HANDLED = "active_task_terminal_return_handled"
+        private const val KEY_ACTIVE_TASK_TERMINAL_TRANSITION_HANDLED =
+            "active_task_terminal_transition_handled"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_DEVICE_ID = "device_id"
@@ -82,6 +91,7 @@ class ConfigManager private constructor(private val context: Context) {
         if (sharedPrefs.contains(KEY_REVERSE_CONNECTION_ENABLED)) {
             sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false) }
         }
+        migrateTaskPromptModelPrefsIfNeeded()
     }
 
     // Auth Token (Auto-generated if missing)
@@ -282,18 +292,35 @@ class ConfigManager private constructor(private val context: Context) {
         }
 
     var taskPromptModel: String
+        get() = sharedPrefs.getString(KEY_TASK_PROMPT_MODEL, "") ?: ""
+        set(value) {
+            sharedPrefs.edit {
+                if (value.isBlank()) {
+                    remove(KEY_TASK_PROMPT_MODEL)
+                } else {
+                    putString(KEY_TASK_PROMPT_MODEL, value)
+                }
+            }
+        }
+
+    var taskPromptDefaultModel: String
         get() = sharedPrefs.getString(
-            KEY_TASK_PROMPT_MODEL,
+            KEY_TASK_PROMPT_DEFAULT_MODEL,
             PortalCloudClient.DEFAULT_MODEL_ID,
-        ) ?: PortalCloudClient.DEFAULT_MODEL_ID
+        )?.takeIf { it.isNotBlank() } ?: PortalCloudClient.DEFAULT_MODEL_ID
         set(value) {
             sharedPrefs.edit {
                 putString(
-                    KEY_TASK_PROMPT_MODEL,
+                    KEY_TASK_PROMPT_DEFAULT_MODEL,
                     value.ifBlank { PortalCloudClient.DEFAULT_MODEL_ID },
                 )
             }
         }
+
+    val effectiveTaskPromptModel: String
+        get() = taskPromptModel.takeIf { it.isNotBlank() }
+            ?: taskPromptDefaultModel.takeIf { it.isNotBlank() }
+            ?: PortalCloudClient.DEFAULT_MODEL_ID
 
     var taskPromptReasoning: Boolean
         get() = sharedPrefs.getBoolean(
@@ -311,50 +338,62 @@ class ConfigManager private constructor(private val context: Context) {
         }
 
     var taskPromptMaxSteps: Int
-        get() = sharedPrefs.getInt(
-            KEY_TASK_PROMPT_MAX_STEPS,
-            PortalCloudClient.DEFAULT_MAX_STEPS,
+        get() = TaskPromptSettingsConstraints.clampMaxSteps(
+            sharedPrefs.getInt(
+                KEY_TASK_PROMPT_MAX_STEPS,
+                PortalCloudClient.DEFAULT_MAX_STEPS,
+            ),
         )
         set(value) {
             sharedPrefs.edit {
                 putInt(
                     KEY_TASK_PROMPT_MAX_STEPS,
-                    value.coerceIn(1, 10_000),
+                    TaskPromptSettingsConstraints.clampMaxSteps(value),
                 )
             }
         }
 
     var taskPromptTemperature: Float
-        get() = sharedPrefs.getFloat(
-            KEY_TASK_PROMPT_TEMPERATURE,
-            PortalCloudClient.DEFAULT_TEMPERATURE.toFloat(),
+        get() = TaskPromptSettingsConstraints.clampTemperature(
+            sharedPrefs.getFloat(
+                KEY_TASK_PROMPT_TEMPERATURE,
+                PortalCloudClient.DEFAULT_TEMPERATURE.toFloat(),
+            ),
         )
         set(value) {
             sharedPrefs.edit {
                 putFloat(
                     KEY_TASK_PROMPT_TEMPERATURE,
-                    value.coerceIn(0f, 2f),
+                    TaskPromptSettingsConstraints.clampTemperature(value),
                 )
             }
         }
 
     var taskPromptExecutionTimeout: Int
-        get() = sharedPrefs.getInt(
-            KEY_TASK_PROMPT_TIMEOUT,
-            PortalCloudClient.DEFAULT_EXECUTION_TIMEOUT,
+        get() = TaskPromptSettingsConstraints.clampExecutionTimeout(
+            sharedPrefs.getInt(
+                KEY_TASK_PROMPT_TIMEOUT,
+                PortalCloudClient.DEFAULT_EXECUTION_TIMEOUT,
+            ),
         )
         set(value) {
             sharedPrefs.edit {
                 putInt(
                     KEY_TASK_PROMPT_TIMEOUT,
-                    value.coerceIn(1, 3600),
+                    TaskPromptSettingsConstraints.clampExecutionTimeout(value),
                 )
             }
         }
 
+    var taskPromptReturnToPortal: Boolean
+        get() = sharedPrefs.getBoolean(KEY_TASK_PROMPT_RETURN_TO_PORTAL, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_TASK_PROMPT_RETURN_TO_PORTAL, value) }
+        }
+
     val taskPromptSettings: PortalTaskSettings
         get() = PortalTaskSettings(
-            llmModel = taskPromptModel,
+            llmModel = effectiveTaskPromptModel,
             reasoning = taskPromptReasoning,
             vision = taskPromptVision,
             maxSteps = taskPromptMaxSteps,
@@ -369,6 +408,11 @@ class ConfigManager private constructor(private val context: Context) {
         taskPromptMaxSteps = settings.maxSteps
         taskPromptTemperature = settings.temperature.toFloat()
         taskPromptExecutionTimeout = settings.executionTimeout
+    }
+
+    fun updateTaskPromptDefaultModel(modelId: String) {
+        if (modelId.isBlank()) return
+        taskPromptDefaultModel = modelId
     }
 
     val activePortalTask: PortalActiveTaskRecord?
@@ -389,8 +433,25 @@ class ConfigManager private constructor(private val context: Context) {
                     KEY_ACTIVE_TASK_LAST_STATUS,
                     PortalTaskTracking.STATUS_CREATED,
                 ) ?: PortalTaskTracking.STATUS_CREATED,
+                startedToastShown = sharedPrefs.getBoolean(
+                    KEY_ACTIVE_TASK_STARTED_TOAST_SHOWN,
+                    false,
+                ),
                 terminalToastShown = sharedPrefs.getBoolean(
                     KEY_ACTIVE_TASK_TERMINAL_TOAST_SHOWN,
+                    false,
+                ),
+                triggerRuleId = sharedPrefs.getString(KEY_ACTIVE_TASK_TRIGGER_RULE_ID, null),
+                returnToPortalOnTerminal = sharedPrefs.getBoolean(
+                    KEY_ACTIVE_TASK_RETURN_TO_PORTAL,
+                    false,
+                ),
+                terminalReturnHandled = sharedPrefs.getBoolean(
+                    KEY_ACTIVE_TASK_TERMINAL_RETURN_HANDLED,
+                    false,
+                ),
+                terminalTransitionHandled = sharedPrefs.getBoolean(
+                    KEY_ACTIVE_TASK_TERMINAL_TRANSITION_HANDLED,
                     false,
                 ),
             )
@@ -404,7 +465,15 @@ class ConfigManager private constructor(private val context: Context) {
             putInt(KEY_ACTIVE_TASK_EXECUTION_TIMEOUT_SEC, record.executionTimeoutSec)
             putLong(KEY_ACTIVE_TASK_POLL_DEADLINE_MS, record.pollDeadlineMs)
             putString(KEY_ACTIVE_TASK_LAST_STATUS, record.lastStatus)
+            putBoolean(KEY_ACTIVE_TASK_STARTED_TOAST_SHOWN, record.startedToastShown)
             putBoolean(KEY_ACTIVE_TASK_TERMINAL_TOAST_SHOWN, record.terminalToastShown)
+            putString(KEY_ACTIVE_TASK_TRIGGER_RULE_ID, record.triggerRuleId)
+            putBoolean(KEY_ACTIVE_TASK_RETURN_TO_PORTAL, record.returnToPortalOnTerminal)
+            putBoolean(KEY_ACTIVE_TASK_TERMINAL_RETURN_HANDLED, record.terminalReturnHandled)
+            putBoolean(
+                KEY_ACTIVE_TASK_TERMINAL_TRANSITION_HANDLED,
+                record.terminalTransitionHandled,
+            )
         }
     }
 
@@ -416,7 +485,24 @@ class ConfigManager private constructor(private val context: Context) {
             remove(KEY_ACTIVE_TASK_EXECUTION_TIMEOUT_SEC)
             remove(KEY_ACTIVE_TASK_POLL_DEADLINE_MS)
             remove(KEY_ACTIVE_TASK_LAST_STATUS)
+            remove(KEY_ACTIVE_TASK_STARTED_TOAST_SHOWN)
             remove(KEY_ACTIVE_TASK_TERMINAL_TOAST_SHOWN)
+            remove(KEY_ACTIVE_TASK_TRIGGER_RULE_ID)
+            remove(KEY_ACTIVE_TASK_RETURN_TO_PORTAL)
+            remove(KEY_ACTIVE_TASK_TERMINAL_RETURN_HANDLED)
+            remove(KEY_ACTIVE_TASK_TERMINAL_TRANSITION_HANDLED)
+        }
+    }
+
+    private fun migrateTaskPromptModelPrefsIfNeeded() {
+        if (sharedPrefs.contains(KEY_TASK_PROMPT_DEFAULT_MODEL)) return
+
+        val legacyExplicitModel = sharedPrefs.getString(KEY_TASK_PROMPT_MODEL, "")?.trim().orEmpty()
+        sharedPrefs.edit {
+            putString(KEY_TASK_PROMPT_DEFAULT_MODEL, PortalCloudClient.DEFAULT_MODEL_ID)
+            if (legacyExplicitModel == PortalCloudClient.DEFAULT_MODEL_ID) {
+                remove(KEY_TASK_PROMPT_MODEL)
+            }
         }
     }
 

@@ -51,13 +51,14 @@
     <string name="task_prompt_model_picker_empty">No models match this search.</string>
     <string name="task_prompt_required">Task description is required</string>
     <string name="task_prompt_model_required">Select a model</string>
-    <string name="task_prompt_invalid_max_steps">Enter a value between 1 and 10000</string>
-    <string name="task_prompt_invalid_timeout">Enter a value between 1 and 3600</string>
+    <string name="task_prompt_invalid_max_steps">Enter a value between 1 and 1000</string>
+    <string name="task_prompt_invalid_timeout">Enter a value between 1 and 1000</string>
     <string name="task_prompt_invalid_temperature">Enter a value between 0 and 2</string>
     <string name="task_prompt_loading_models">Loading models…</string>
     <string name="task_prompt_missing_api_key">Task launch requires a Mobilerun API key.</string>
     <string name="task_prompt_unsupported_custom_url">Task launch only supports WebSocket URLs ending in /v1/providers/personal/join.</string>
     <string name="task_prompt_started">Task started on this device.</string>
+    <string name="task_prompt_return_to_portal">Return to Portal when task ends</string>
     <string name="task_prompt_copy_success">Task ID copied</string>
     <string name="task_prompt_cancel_button">Cancel task</string>
     <string name="task_prompt_status_created">Created</string>

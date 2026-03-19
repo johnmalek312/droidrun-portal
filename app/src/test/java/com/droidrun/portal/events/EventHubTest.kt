@@ -65,9 +65,10 @@ class EventHubTest {
 
     private fun resetEventHubState() {
         val instance = EventHub
-        EventHub::class.java.getDeclaredField("serverListener").apply {
+        EventHub::class.java.getDeclaredField("listeners").apply {
             isAccessible = true
-            set(instance, null)
+            @Suppress("UNCHECKED_CAST")
+            (get(instance) as MutableSet<(PortalEvent) -> Unit>).clear()
         }
         EventHub::class.java.getDeclaredField("configManager").apply {
             isAccessible = true

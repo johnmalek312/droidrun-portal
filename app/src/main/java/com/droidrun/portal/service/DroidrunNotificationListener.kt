@@ -6,6 +6,7 @@ import android.util.Log
 import com.droidrun.portal.events.EventHub
 import com.droidrun.portal.events.model.EventType
 import com.droidrun.portal.events.model.PortalEvent
+import com.droidrun.portal.triggers.TriggerRuntime
 import org.json.JSONObject
 
 class DroidrunNotificationListener : NotificationListenerService() {
@@ -16,6 +17,7 @@ class DroidrunNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        TriggerRuntime.initialize(this)
         Log.i(TAG, "Notification Listener Connected")
     }
 
@@ -42,12 +44,11 @@ class DroidrunNotificationListener : NotificationListenerService() {
             }
 
             // 3. Wrap it in our Event Model
-            val event = PortalEvent(
-                type = EventType.NOTIFICATION,
-                payload = payload
-            )
+            val legacyEvent = PortalEvent(type = EventType.NOTIFICATION, payload = payload)
+            val event = PortalEvent(type = EventType.NOTIFICATION_POSTED, payload = payload)
 
             // 4. Send to the Hub
+            EventHub.emit(legacyEvent)
             EventHub.emit(event)
             
             Log.v(TAG, "Emitted notification from $packageName")
@@ -68,14 +69,10 @@ class DroidrunNotificationListener : NotificationListenerService() {
                 put("removed", true)
             }
             
-            // For now, we can reuse NOTIFICATION type or create a new one.
-            // Let's send it as NOTIFICATION but with 'removed' flag for simplicity 
-            // unless we want a specific event type.
-            val event = PortalEvent(
-                type = EventType.NOTIFICATION,
-                payload = payload
-            )
-            
+            val legacyEvent = PortalEvent(type = EventType.NOTIFICATION, payload = payload)
+            val event = PortalEvent(type = EventType.NOTIFICATION_REMOVED, payload = payload)
+
+            EventHub.emit(legacyEvent)
             EventHub.emit(event)
          } catch (e: Exception) {
              Log.e(TAG, "Error processing notification removal", e)

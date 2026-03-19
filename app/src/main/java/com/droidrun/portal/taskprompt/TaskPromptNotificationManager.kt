@@ -5,10 +5,13 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.droidrun.portal.R
 import com.droidrun.portal.ui.MainActivity
+import androidx.core.net.toUri
 
 object TaskPromptNotificationManager {
     const val ACTION_CANCEL_TASK = "com.droidrun.portal.taskprompt.action.CANCEL_TASK"
@@ -18,14 +21,17 @@ object TaskPromptNotificationManager {
     private const val CHANNEL_ID = "task_prompt_channel"
     private const val CHANNEL_NAME = "Portal Tasks"
     private const val NOTIFICATION_ID = 3101
+    private const val TAG = "TaskPromptNotif"
 
     fun showActiveTask(context: Context, record: PortalActiveTaskRecord) {
         val phase = PortalTaskTracking.notificationPhaseForStatus(record.lastStatus)
         if (phase == PortalTaskNotificationPhase.NONE || phase == PortalTaskNotificationPhase.TERMINAL) {
+            Log.d(TAG, "Active notification suppressed for taskId=${record.taskId} phase=$phase")
             cancel(context)
             return
         }
 
+        Log.d(TAG, "Posting active task notification for taskId=${record.taskId} phase=$phase")
         notify(
             context = context,
             title = if (phase == PortalTaskNotificationPhase.CANCELLING) {
@@ -57,6 +63,7 @@ object TaskPromptNotificationManager {
             ?: buildTerminalFallbackMessage(context, record, details)
             ?: fallbackMessage
 
+        Log.d(TAG, "Posting terminal task notification for taskId=${record.taskId} status=${record.lastStatus}")
         notify(
             context = context,
             title = title,
@@ -69,6 +76,7 @@ object TaskPromptNotificationManager {
 
     fun cancel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        Log.d(TAG, "Cancelling task notification")
         manager.cancel(NOTIFICATION_ID)
     }
 
@@ -109,7 +117,8 @@ object TaskPromptNotificationManager {
 
         try {
             manager.notify(NOTIFICATION_ID, builder.build())
-        } catch (_: SecurityException) {
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Posting task notification failed.", error)
         }
     }
 
@@ -137,11 +146,12 @@ object TaskPromptNotificationManager {
     private fun buildCancelPendingIntent(context: Context, taskId: String): PendingIntent {
         val intent = Intent(context, TaskPromptNotificationActionReceiver::class.java).apply {
             action = ACTION_CANCEL_TASK
+            data = "portal-task://cancel/${Uri.encode(taskId)}".toUri()
             putExtra(EXTRA_TASK_ID, taskId)
         }
         return PendingIntent.getBroadcast(
             context,
-            32,
+            taskId.hashCode() and 0x7fffffff,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

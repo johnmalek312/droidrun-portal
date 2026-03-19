@@ -31,6 +31,9 @@ class PortalWebSocketServer(
     }
 
     private val installExecutor = Executors.newSingleThreadExecutor()
+    private val eventListener: (PortalEvent) -> Unit = { event ->
+        broadcast(event.toJson())
+    }
 
     override fun onWebsocketHandshakeReceivedAsServer(
         conn: WebSocket?,
@@ -175,9 +178,7 @@ class PortalWebSocketServer(
         onServerStarted?.invoke()
 
         // Register ourselves with the Hub to receive events
-        EventHub.subscribe { event ->
-            broadcast(event.toJson())
-        }
+        EventHub.subscribe(eventListener)
     }
 
     private fun handleCommand(conn: WebSocket?, event: PortalEvent) {
@@ -196,6 +197,7 @@ class PortalWebSocketServer(
     // Helper to safely stop
     fun stopSafely() {
         try {
+            EventHub.unsubscribe(eventListener)
             stop()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping server", e)
