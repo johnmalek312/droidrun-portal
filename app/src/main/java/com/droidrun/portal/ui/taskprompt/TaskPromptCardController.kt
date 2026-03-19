@@ -5,26 +5,14 @@ import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
-import androidx.core.view.doOnLayout
-import androidx.core.widget.doAfterTextChanged
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.droidrun.portal.R
-import com.droidrun.portal.databinding.DialogTaskPromptModelPickerBinding
-import com.droidrun.portal.databinding.ItemTaskPromptModelOptionBinding
 import com.droidrun.portal.databinding.ViewTaskPromptCardBinding
-import com.droidrun.portal.taskprompt.PortalCloudClient
 import com.droidrun.portal.taskprompt.PortalModelOption
 import com.droidrun.portal.taskprompt.PortalTaskDraft
 import com.droidrun.portal.taskprompt.PortalTaskSettings
-import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.card.MaterialCardView
 import com.google.android.material.progressindicator.CircularProgressIndicator
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
@@ -34,6 +22,7 @@ class TaskPromptCardController(
     private val context: Context,
     layoutInflater: LayoutInflater,
     private val onSubmit: (PortalTaskDraft) -> Unit,
+    private val onReturnToPortalChanged: (Boolean) -> Unit,
     private val onCancelTask: () -> Unit,
     private val onOpenTaskDetails: (String) -> Unit,
     private val onOpenTaskHistory: () -> Unit,
@@ -65,36 +54,8 @@ class TaskPromptCardController(
         get() = binding.taskPromptInputLayout
     private val promptInput: TextInputEditText
         get() = binding.taskPromptInput
-    private val modelInputLayout: TextInputLayout
-        get() = binding.taskPromptModelLayout
-    private val modelInput: TextInputEditText
-        get() = binding.taskPromptModelInput
-    private val reasoningTile: MaterialCardView
-        get() = binding.taskPromptReasoningTile
-    private val reasoningSwitch: SwitchMaterial
-        get() = binding.taskPromptReasoningToggle
-    private val visionTile: MaterialCardView
-        get() = binding.taskPromptVisionTile
-    private val visionSwitch: SwitchMaterial
-        get() = binding.taskPromptVisionToggle
-    private val advancedHeader: LinearLayout
-        get() = binding.taskPromptAdvancedHeader
-    private val advancedChevron: ImageView
-        get() = binding.taskPromptAdvancedChevron
-    private val advancedContent: LinearLayout
-        get() = binding.taskPromptAdvancedContent
-    private val maxStepsInputLayout: TextInputLayout
-        get() = binding.taskPromptMaxStepsLayout
-    private val maxStepsInput: TextInputEditText
-        get() = binding.taskPromptMaxStepsInput
-    private val timeoutInputLayout: TextInputLayout
-        get() = binding.taskPromptTimeoutLayout
-    private val timeoutInput: TextInputEditText
-        get() = binding.taskPromptTimeoutInput
-    private val temperatureInputLayout: TextInputLayout
-        get() = binding.taskPromptTemperatureLayout
-    private val temperatureInput: TextInputEditText
-        get() = binding.taskPromptTemperatureInput
+    private val returnToPortalSwitch: SwitchMaterial
+        get() = binding.taskPromptReturnToPortalSwitch
     private val statusText: TextView
         get() = binding.taskPromptStatusText
     private val taskStateContainer: View
@@ -114,48 +75,29 @@ class TaskPromptCardController(
     private val submitProgress: CircularProgressIndicator
         get() = binding.taskPromptSubmitProgress
 
-    private var modelOptions: List<PortalModelOption> = emptyList()
-    private var filteredModelOptions: List<PortalModelOption> = emptyList()
     private var currentSettings = PortalTaskSettings()
     private var isModelsLoading = false
     private var isSubmitting = false
     private var canSubmit = false
     private var isFormEnabled = true
     private var isHistoryEnabled = false
-    private var isAdvancedExpanded = false
-    private var selectedModelId: String? = null
     private var taskState: TaskStateViewModel? = null
+    private var suppressReturnToPortalChange = false
+    private val settingsController = TaskPromptSettingsPanelController(
+        context,
+        binding.taskPromptSettingsPanel,
+    )
 
     init {
-        modelInput.isFocusable = false
-        modelInput.isClickable = false
-        modelInputLayout.setEndIconOnClickListener { openModelPicker() }
-        modelInputLayout.setOnClickListener { openModelPicker() }
-        modelInput.setOnClickListener { openModelPicker() }
         historyButton.setOnClickListener { onOpenTaskHistory() }
-
-        advancedHeader.setOnClickListener {
-            if (!isFormEnabled) return@setOnClickListener
-            isAdvancedExpanded = !isAdvancedExpanded
-            advancedContent.visibility = if (isAdvancedExpanded) View.VISIBLE else View.GONE
-            advancedChevron.rotation = if (isAdvancedExpanded) 90f else 0f
-        }
-
-        reasoningTile.setOnClickListener {
-            if (reasoningSwitch.isEnabled) {
-                reasoningSwitch.isChecked = !reasoningSwitch.isChecked
-            }
-        }
-        visionTile.setOnClickListener {
-            if (visionSwitch.isEnabled) {
-                visionSwitch.isChecked = !visionSwitch.isChecked
-            }
-        }
-        reasoningSwitch.setOnCheckedChangeListener { _, _ -> updateToggleTiles() }
-        visionSwitch.setOnCheckedChangeListener { _, _ -> updateToggleTiles() }
 
         cancelTaskButton.setOnClickListener {
             onCancelTask()
+        }
+        returnToPortalSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (!suppressReturnToPortalChange) {
+                onReturnToPortalChanged(isChecked)
+            }
         }
 
         submitButton.setOnClickListener {
@@ -163,7 +105,6 @@ class TaskPromptCardController(
             onSubmit(draft)
         }
 
-        updateToggleTiles()
         updateSubmitButtonState()
         applyTaskState(null)
     }
@@ -173,35 +114,29 @@ class TaskPromptCardController(
         (rootView.parent as? ViewGroup)?.removeView(rootView)
         container.removeAllViews()
         container.addView(rootView)
-        syncSettingTileHeights()
     }
 
     fun setVisible(visible: Boolean) {
         rootView.visibility = if (visible) View.VISIBLE else View.GONE
-        if (visible) {
-            syncSettingTileHeights()
-        }
     }
 
     fun applySettings(settings: PortalTaskSettings, preservePrompt: Boolean = true) {
         currentSettings = settings
-        reasoningSwitch.isChecked = settings.reasoning
-        visionSwitch.isChecked = settings.vision
-        maxStepsInput.setText(settings.maxSteps.toString())
-        timeoutInput.setText(settings.executionTimeout.toString())
-        temperatureInput.setText(formatTemperature(settings.temperature))
+        settingsController.applySettings(settings)
         if (!preservePrompt) {
             promptInput.setText("")
         }
-        selectModel(settings.llmModel)
-        updateToggleTiles()
-        syncSettingTileHeights()
+    }
+
+    fun setReturnToPortalChecked(checked: Boolean) {
+        if (returnToPortalSwitch.isChecked == checked) return
+        suppressReturnToPortalChange = true
+        returnToPortalSwitch.isChecked = checked
+        suppressReturnToPortalChange = false
     }
 
     fun setModelOptions(options: List<PortalModelOption>) {
-        modelOptions = options
-        filteredModelOptions = options
-        selectModel(selectedModelId ?: currentSettings.llmModel)
+        settingsController.setModelOptions(options)
         updateSubmitButtonState()
     }
 
@@ -213,6 +148,7 @@ class TaskPromptCardController(
 
     fun setModelsLoading(loading: Boolean) {
         isModelsLoading = loading
+        settingsController.setModelsLoading(loading)
         updateSubmitButtonState()
     }
 
@@ -235,20 +171,9 @@ class TaskPromptCardController(
     fun setFormEnabled(enabled: Boolean) {
         isFormEnabled = enabled
         promptInput.isEnabled = enabled
-        modelInputLayout.isEnabled = enabled
-        modelInput.isEnabled = enabled
-        reasoningTile.isEnabled = enabled
-        reasoningSwitch.isEnabled = enabled
-        visionTile.isEnabled = enabled
-        visionSwitch.isEnabled = enabled
-        advancedHeader.isEnabled = enabled
-        advancedHeader.alpha = if (enabled) 1f else 0.6f
-        maxStepsInput.isEnabled = enabled
-        timeoutInput.isEnabled = enabled
-        temperatureInput.isEnabled = enabled
-        updateToggleTiles()
+        returnToPortalSwitch.isEnabled = enabled
+        settingsController.setEnabled(enabled)
         updateSubmitButtonState()
-        syncSettingTileHeights()
     }
 
     fun clearPrompt() {
@@ -301,10 +226,9 @@ class TaskPromptCardController(
             context.getString(R.string.task_prompt_cancel_button)
         }
 
-        val hasModels = modelOptions.isNotEmpty()
+        val hasModels = settingsController.hasModels()
         submitButton.isEnabled =
             isFormEnabled && canSubmit && !isModelsLoading && !isSubmitting && !showRunningState && hasModels
-        modelInputLayout.isEnabled = isFormEnabled && !isModelsLoading && hasModels
         cancelTaskButton.isEnabled =
             taskState?.canCancel == true && taskState?.cancelInFlight != true
         historyButton.isEnabled = isHistoryEnabled
@@ -313,10 +237,6 @@ class TaskPromptCardController(
 
     private fun buildDraft(): PortalTaskDraft? {
         promptInputLayout.error = null
-        modelInputLayout.error = null
-        maxStepsInputLayout.error = null
-        timeoutInputLayout.error = null
-        temperatureInputLayout.error = null
 
         val prompt = promptInput.text?.toString()?.trim().orEmpty()
         if (prompt.isBlank()) {
@@ -324,54 +244,13 @@ class TaskPromptCardController(
             return null
         }
 
-        val modelId = selectedModelId
-        if (modelId.isNullOrBlank()) {
-            modelInputLayout.error = context.getString(R.string.task_prompt_model_required)
-            return null
-        }
-
-        val maxSteps = maxStepsInput.text?.toString()?.trim()?.toIntOrNull()
-        if (maxSteps == null || maxSteps !in 1..10_000) {
-            maxStepsInputLayout.error = context.getString(R.string.task_prompt_invalid_max_steps)
-            return null
-        }
-
-        val executionTimeout = timeoutInput.text?.toString()?.trim()?.toIntOrNull()
-        if (executionTimeout == null || executionTimeout !in 1..3600) {
-            timeoutInputLayout.error = context.getString(R.string.task_prompt_invalid_timeout)
-            return null
-        }
-
-        val temperature = temperatureInput.text?.toString()?.trim()?.toDoubleOrNull()
-        if (temperature == null || temperature < 0 || temperature > 2) {
-            temperatureInputLayout.error = context.getString(R.string.task_prompt_invalid_temperature)
-            return null
-        }
-
-        currentSettings = PortalTaskSettings(
-            llmModel = modelId,
-            reasoning = reasoningSwitch.isChecked,
-            vision = visionSwitch.isChecked,
-            maxSteps = maxSteps,
-            temperature = temperature,
-            executionTimeout = executionTimeout,
-        )
+        currentSettings = settingsController.buildSettingsOrShowErrors() ?: return null
 
         return PortalTaskDraft(
             prompt = prompt,
             settings = currentSettings,
+            returnToPortalOnTerminal = returnToPortalSwitch.isChecked,
         )
-    }
-
-    private fun selectModel(modelId: String?) {
-        if (modelOptions.isEmpty()) return
-        val selected = modelOptions.firstOrNull { it.id == modelId }
-            ?: modelOptions.firstOrNull { it.id == PortalCloudClient.DEFAULT_MODEL_ID }
-            ?: modelOptions.firstOrNull()
-        selected?.let {
-            selectedModelId = it.id
-            modelInput.setText(it.label)
-        }
     }
 
     private fun applyTaskState(state: TaskStateViewModel?) {
@@ -426,162 +305,4 @@ class TaskPromptCardController(
         }
     }
 
-    private fun updateToggleTiles() {
-        updateToggleTile(reasoningTile, reasoningSwitch.isChecked)
-        updateToggleTile(visionTile, visionSwitch.isChecked)
-    }
-
-    private fun syncSettingTileHeights() {
-        val tileRow = reasoningTile.parent as? View ?: return
-        resetTileHeight(reasoningTile)
-        resetTileHeight(visionTile)
-        tileRow.doOnLayout {
-            val maxHeight = maxOf(
-                measureTileHeight(reasoningTile),
-                measureTileHeight(visionTile),
-            )
-            if (maxHeight <= 0) return@doOnLayout
-            applyTileHeight(reasoningTile, maxHeight)
-            applyTileHeight(visionTile, maxHeight)
-        }
-    }
-
-    private fun resetTileHeight(card: MaterialCardView) {
-        val layoutParams = card.layoutParams ?: return
-        if (layoutParams.height == ViewGroup.LayoutParams.WRAP_CONTENT) return
-        layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
-        card.layoutParams = layoutParams
-    }
-
-    private fun measureTileHeight(card: MaterialCardView): Int {
-        if (card.width <= 0) {
-            return card.measuredHeight
-        }
-        card.measure(
-            View.MeasureSpec.makeMeasureSpec(card.width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-        )
-        return card.measuredHeight
-    }
-
-    private fun applyTileHeight(card: MaterialCardView, height: Int) {
-        val layoutParams = card.layoutParams ?: return
-        if (layoutParams.height == height) return
-        layoutParams.height = height
-        card.layoutParams = layoutParams
-    }
-
-    private fun updateToggleTile(card: MaterialCardView, isChecked: Boolean) {
-        val backgroundColor = ContextCompat.getColor(
-            context,
-            if (isChecked) R.color.task_prompt_chip_info_bg else R.color.task_prompt_input_surface,
-        )
-        val strokeColor = ContextCompat.getColor(
-            context,
-            if (isChecked) R.color.task_prompt_accent else R.color.task_prompt_stroke,
-        )
-        card.setCardBackgroundColor(backgroundColor)
-        card.strokeColor = strokeColor
-        card.alpha = if (isFormEnabled) 1f else 0.6f
-    }
-
-    private fun openModelPicker() {
-        if (!isFormEnabled || modelOptions.isEmpty()) return
-
-        val dialog = BottomSheetDialog(context)
-        val dialogBinding = DialogTaskPromptModelPickerBinding.inflate(LayoutInflater.from(context))
-        dialog.setContentView(dialogBinding.root)
-
-        val adapter = ModelPickerAdapter { selected ->
-            selectedModelId = selected.id
-            modelInputLayout.error = null
-            modelInput.setText(selected.label)
-            dialog.dismiss()
-        }
-
-        dialogBinding.taskPromptModelList.layoutManager = LinearLayoutManager(context)
-        dialogBinding.taskPromptModelList.adapter = adapter
-        dialogBinding.taskPromptModelList.itemAnimator = null
-
-        fun updateFilteredOptions(query: String) {
-            val normalizedQuery = query.trim().lowercase()
-            filteredModelOptions =
-                if (normalizedQuery.isBlank()) {
-                    modelOptions
-                } else {
-                    modelOptions.filter { option ->
-                        option.label.lowercase().contains(normalizedQuery) ||
-                        option.id.lowercase().contains(normalizedQuery)
-                    }
-                }
-            adapter.notifyDataSetChanged()
-            dialogBinding.taskPromptModelEmptyText.visibility =
-                if (filteredModelOptions.isEmpty()) View.VISIBLE else View.GONE
-        }
-
-        dialogBinding.taskPromptModelSearchInput.doAfterTextChanged { editable ->
-            updateFilteredOptions(editable?.toString().orEmpty())
-        }
-        dialogBinding.taskPromptModelCloseButton.setOnClickListener { dialog.dismiss() }
-
-        updateFilteredOptions("")
-        dialog.setOnShowListener {
-            dialog.behavior.apply {
-                state = BottomSheetBehavior.STATE_EXPANDED
-                skipCollapsed = true
-                isDraggable = false
-            }
-        }
-        dialog.show()
-    }
-
-    private fun formatTemperature(value: Double): String {
-        return if (value % 1.0 == 0.0) {
-            value.toInt().toString()
-        } else {
-            value.toString()
-        }
-    }
-
-    private inner class ModelPickerAdapter(
-        private val onModelSelected: (PortalModelOption) -> Unit,
-    ) : RecyclerView.Adapter<ModelPickerAdapter.ModelViewHolder>() {
-        private val inflater = LayoutInflater.from(context)
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ModelViewHolder {
-            val binding = ItemTaskPromptModelOptionBinding.inflate(inflater, parent, false)
-            return ModelViewHolder(binding)
-        }
-
-        override fun getItemCount(): Int = filteredModelOptions.size
-
-        override fun onBindViewHolder(holder: ModelViewHolder, position: Int) {
-            holder.bind(filteredModelOptions[position])
-        }
-
-        inner class ModelViewHolder(
-            private val itemBinding: ItemTaskPromptModelOptionBinding,
-        ) : RecyclerView.ViewHolder(itemBinding.root) {
-
-            fun bind(option: PortalModelOption) {
-                itemBinding.taskPromptModelOptionTitle.text = option.label
-                itemBinding.taskPromptModelOptionSubtitle.text = option.id
-
-                val isSelected = option.id == selectedModelId
-                itemBinding.taskPromptModelOptionSelectedIcon.visibility =
-                    if (isSelected) View.VISIBLE else View.INVISIBLE
-                itemBinding.taskPromptModelOptionCard.strokeColor = ContextCompat.getColor(
-                    context,
-                    if (isSelected) R.color.task_prompt_accent else R.color.task_prompt_stroke,
-                )
-                itemBinding.taskPromptModelOptionCard.setCardBackgroundColor(
-                    ContextCompat.getColor(
-                        context,
-                        if (isSelected) R.color.task_prompt_chip_info_bg else R.color.task_prompt_input_surface,
-                    ),
-                )
-                itemBinding.taskPromptModelOptionCard.setOnClickListener { onModelSelected(option) }
-            }
-        }
-    }
 }

@@ -7,7 +7,17 @@ data class PortalActiveTaskRecord(
     val executionTimeoutSec: Int,
     val pollDeadlineMs: Long,
     val lastStatus: String = PortalTaskTracking.STATUS_CREATED,
+    val startedToastShown: Boolean = false,
     val terminalToastShown: Boolean = false,
+    val triggerRuleId: String? = null,
+    val returnToPortalOnTerminal: Boolean = false,
+    val terminalReturnHandled: Boolean = false,
+    val terminalTransitionHandled: Boolean = false,
+)
+
+data class PortalTaskLaunchMetadata(
+    val triggerRuleId: String? = null,
+    val returnToPortalOnTerminal: Boolean = false,
 )
 
 data class PortalTaskHistoryItem(
@@ -15,6 +25,7 @@ data class PortalTaskHistoryItem(
     val prompt: String,
     val promptPreview: String,
     val status: String,
+    val deviceId: String? = null,
     val createdAt: String? = null,
     val finishedAt: String? = null,
     val steps: Int? = null,
@@ -110,6 +121,29 @@ object PortalTaskTracking {
     fun shouldShowTerminalToast(record: PortalActiveTaskRecord?): Boolean {
         if (record == null) return false
         return isLocalTerminalStatus(record.lastStatus) && !record.terminalToastShown
+    }
+
+    fun shouldHandleTerminalTransition(record: PortalActiveTaskRecord?): Boolean {
+        if (record == null) return false
+        return isLocalTerminalStatus(record.lastStatus) && !record.terminalTransitionHandled
+    }
+
+    fun shouldShowStartedToast(record: PortalActiveTaskRecord?): Boolean {
+        if (record == null) return false
+        return (record.lastStatus == STATUS_CREATED || record.lastStatus == STATUS_RUNNING) &&
+            !record.startedToastShown
+    }
+
+    fun withUpdatedStatus(record: PortalActiveTaskRecord, status: String): PortalActiveTaskRecord {
+        if (record.lastStatus == status) return record
+
+        val resetTerminalFlags = isBlockingStatus(status) || isLocalTerminalStatus(status)
+        return record.copy(
+            lastStatus = status,
+            terminalToastShown = if (resetTerminalFlags) false else record.terminalToastShown,
+            terminalReturnHandled = if (resetTerminalFlags) false else record.terminalReturnHandled,
+            terminalTransitionHandled = if (resetTerminalFlags) false else record.terminalTransitionHandled,
+        )
     }
 
     fun notificationPhaseForStatus(status: String?): PortalTaskNotificationPhase {

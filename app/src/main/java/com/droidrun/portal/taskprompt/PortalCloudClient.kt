@@ -1,5 +1,6 @@
 package com.droidrun.portal.taskprompt
 
+import android.util.Log
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -11,6 +12,9 @@ import java.io.IOException
 import java.net.URI
 import java.util.LinkedHashSet
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class PortalTaskSettings(
     val llmModel: String = PortalCloudClient.DEFAULT_MODEL_ID,
@@ -24,6 +28,7 @@ data class PortalTaskSettings(
 data class PortalTaskDraft(
     val prompt: String,
     val settings: PortalTaskSettings,
+    val returnToPortalOnTerminal: Boolean = false,
 )
 
 data class PortalModelOption(
@@ -34,6 +39,7 @@ data class PortalModelOption(
 data class PortalModelsLoadResult(
     val models: List<PortalModelOption>,
     val warningMessage: String? = null,
+    val loadedFromServer: Boolean = false,
 )
 
 data class PortalTaskLaunchSuccess(
@@ -84,15 +90,24 @@ class PortalCloudClient(
     private val okHttpClient: OkHttpClient = OkHttpClient(),
 ) {
     companion object {
+        private const val TAG = "PortalCloudClient"
         const val DEFAULT_MODEL_ID = "google/gemini-3.1-flash-lite-preview"
         const val DEFAULT_REASONING = false
         const val DEFAULT_VISION = false
         const val DEFAULT_MAX_STEPS = 100
         const val DEFAULT_TEMPERATURE = 0.5
         const val DEFAULT_EXECUTION_TIMEOUT = 1000
+        internal const val LAUNCH_RECOVERY_WINDOW_MS = 8_000L
+        internal const val LAUNCH_RECOVERY_RETRY_INTERVAL_MS = 1_000L
 
         private const val SUPPORTED_JOIN_PATH = "/v1/providers/personal/join"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        private val HARD_LAUNCH_FAILURE_CODES = setOf(400, 401, 403, 404, 412, 422)
+        private val LAUNCH_RECOVERY_EXECUTOR = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "PortalLaunchRecovery").apply {
+                isDaemon = true
+            }
+        }
         private val FALLBACK_MODEL_IDS = listOf(
             DEFAULT_MODEL_ID,
             "google/gemini-3.1-pro-preview",
@@ -161,7 +176,128 @@ class PortalCloudClient(
             return modelIds
                 .distinct()
                 .map { PortalModelOption(id = it, label = formatModelLabel(it)) }
-                .sortedBy { it.label.lowercase(Locale.US) }
+        }
+
+        internal fun parseLaunchTaskId(body: String): String? {
+            val trimmedBody = body.trim()
+            if (!trimmedBody.startsWith("{")) return null
+
+            return try {
+                val json = JSONObject(trimmedBody)
+                firstNonBlankString(
+                    json,
+                    "id",
+                    "taskId",
+                    "task_id",
+                ) ?: json.optJSONObject("task")?.let { task ->
+                    firstNonBlankString(task, "id", "taskId", "task_id")
+                } ?: json.optJSONObject("data")?.let { data ->
+                    firstNonBlankString(data, "id", "taskId", "task_id")
+                        ?: data.optJSONObject("task")?.let { task ->
+                            firstNonBlankString(task, "id", "taskId", "task_id")
+                        }
+                } ?: json.optJSONObject("result")?.let { result ->
+                    firstNonBlankString(result, "id", "taskId", "task_id")
+                        ?: result.optJSONObject("task")?.let { task ->
+                            firstNonBlankString(task, "id", "taskId", "task_id")
+                        }
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        internal fun hasLaunchRecoveryTimeRemaining(
+            launchStartedAtMs: Long,
+            nowMs: Long = System.currentTimeMillis(),
+        ): Boolean {
+            return nowMs < launchStartedAtMs + LAUNCH_RECOVERY_WINDOW_MS
+        }
+
+        internal fun nextLaunchRecoveryDelayMs(
+            launchStartedAtMs: Long,
+            nowMs: Long = System.currentTimeMillis(),
+        ): Long {
+            val remainingMs = (launchStartedAtMs + LAUNCH_RECOVERY_WINDOW_MS) - nowMs
+            if (remainingMs <= 0L) return 0L
+            return remainingMs.coerceAtMost(LAUNCH_RECOVERY_RETRY_INTERVAL_MS)
+        }
+
+        internal fun findRecoverableTaskId(
+            page: PortalTaskHistoryPage?,
+            deviceId: String,
+            prompt: String,
+            launchStartedAtMs: Long,
+            nowMs: Long = System.currentTimeMillis(),
+        ): String? {
+            val normalizedPrompt = normalizePrompt(prompt)
+            if (normalizedPrompt.isBlank()) return null
+
+            val lowerBoundMs = launchStartedAtMs - 5_000L
+            val upperBoundMs = nowMs + 5_000L
+            val recentCandidates = page?.items
+                ?.filter { item ->
+                    val createdAtMs = parseCreatedAtMs(item.createdAt) ?: return@filter false
+                    createdAtMs in lowerBoundMs..upperBoundMs &&
+                        nowMs - createdAtMs <= 30_000L
+                }
+                .orEmpty()
+            if (recentCandidates.isEmpty()) return null
+
+            val normalizedDeviceId = deviceId.trim().lowercase(Locale.US)
+            val sameDeviceCandidates = recentCandidates.filter { item ->
+                val itemDeviceId = item.deviceId?.trim()?.lowercase(Locale.US).orEmpty()
+                normalizedDeviceId.isNotBlank() && itemDeviceId == normalizedDeviceId
+            }
+
+            val scopedCandidates = when {
+                sameDeviceCandidates.isNotEmpty() -> sameDeviceCandidates
+                recentCandidates.none { !it.deviceId.isNullOrBlank() } -> recentCandidates
+                else -> emptyList()
+            }
+            if (scopedCandidates.isEmpty()) return null
+
+            return scopedCandidates
+                .firstExactPromptMatch(normalizedPrompt)
+                ?: scopedCandidates.firstPreviewOrPrefixMatch(normalizedPrompt)
+                ?: scopedCandidates.singleOrNull()?.taskId
+        }
+
+        private fun normalizePrompt(prompt: String): String {
+            return prompt.trim().replace(Regex("\\s+"), " ")
+        }
+
+        private fun List<PortalTaskHistoryItem>.firstExactPromptMatch(
+            normalizedPrompt: String,
+        ): String? {
+            return firstOrNull { item ->
+                normalizePrompt(item.prompt) == normalizedPrompt
+            }?.taskId
+        }
+
+        private fun List<PortalTaskHistoryItem>.firstPreviewOrPrefixMatch(
+            normalizedPrompt: String,
+        ): String? {
+            return firstOrNull { item ->
+                val candidatePrompt = normalizePrompt(item.prompt)
+                val candidatePreview = normalizePrompt(
+                    item.promptPreview.removeSuffix("…").removeSuffix("..."),
+                )
+                when {
+                    candidatePrompt.isNotBlank() &&
+                        (candidatePrompt.startsWith(normalizedPrompt) ||
+                            normalizedPrompt.startsWith(candidatePrompt)) -> true
+
+                    candidatePreview.isNotBlank() &&
+                        normalizedPrompt.startsWith(candidatePreview) -> true
+
+                    else -> false
+                }
+            }?.taskId
+        }
+
+        private fun parseCreatedAtMs(createdAt: String?): Long? {
+            return PortalTaskTimestampSupport.parseEpochMillis(createdAt)
         }
 
         fun formatModelLabel(modelId: String): String {
@@ -378,11 +514,13 @@ class PortalCloudClient(
             val taskId = firstNonBlankString(task, "id")?.ifBlank { fallbackTaskId } ?: fallbackTaskId
             val status = firstNonBlankString(task, "status") ?: return null
             val prompt = firstNonBlankString(task, "task", "prompt").orEmpty()
-            val promptPreview = if (prompt.isNotBlank()) {
-                PortalTaskTracking.buildPromptPreview(prompt)
-            } else {
-                ""
-            }
+            val promptPreview = firstNonBlankString(task, "promptPreview", "prompt_preview")
+                ?.takeIf { it.isNotBlank() }
+                ?: if (prompt.isNotBlank()) {
+                    PortalTaskTracking.buildPromptPreview(prompt)
+                } else {
+                    ""
+                }
             val createdAt = firstNonBlankString(task, "createdAt", "created_at")
             val finishedAt = firstNonBlankString(task, "finishedAt", "finished_at")
             return PortalTaskDetails(
@@ -432,6 +570,13 @@ class PortalCloudClient(
                                 prompt = task.prompt,
                                 promptPreview = task.promptPreview,
                                 status = task.status,
+                                deviceId = firstNonBlankString(
+                                    taskObject,
+                                    "deviceId",
+                                    "device_id",
+                                ) ?: taskObject.optJSONObject("device")?.let { device ->
+                                    firstNonBlankString(device, "id", "deviceId", "device_id")
+                                },
                                 createdAt = task.createdAt,
                                 finishedAt = task.finishedAt,
                                 steps = task.steps,
@@ -549,6 +694,7 @@ class PortalCloudClient(
                     PortalModelsLoadResult(
                         models = fallbackModelOptions(),
                         warningMessage = "Couldn't load models from Mobilerun. Using the documented fallback model list.",
+                        loadedFromServer = false,
                     ),
                 )
             }
@@ -561,6 +707,7 @@ class PortalCloudClient(
                             PortalModelsLoadResult(
                                 models = fallbackModelOptions(),
                                 warningMessage = "Couldn't load models from Mobilerun. Using the documented fallback model list.",
+                                loadedFromServer = false,
                             ),
                         )
                         return
@@ -572,12 +719,18 @@ class PortalCloudClient(
                             PortalModelsLoadResult(
                                 models = fallbackModelOptions(),
                                 warningMessage = "Couldn't load models from Mobilerun. Using the documented fallback model list.",
+                                loadedFromServer = false,
                             ),
                         )
                         return
                     }
 
-                    callback(PortalModelsLoadResult(models = buildModelOptions(normalizedIds)))
+                    callback(
+                        PortalModelsLoadResult(
+                            models = buildModelOptions(normalizedIds),
+                            loadedFromServer = true,
+                        ),
+                    )
                 }
             }
         })
@@ -588,17 +741,34 @@ class PortalCloudClient(
         authToken: String,
         deviceId: String,
         draft: PortalTaskDraft,
+        launchStartedAtMs: Long = System.currentTimeMillis(),
         callback: (PortalTaskLaunchResult) -> Unit,
     ) {
+        val completionGate = AtomicBoolean(false)
         val request = buildLaunchTaskRequest(restBaseUrl, authToken, deviceId, draft)
         okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
-                callback(PortalTaskLaunchResult.Error("Could not reach Mobilerun. Check the connection and try again."))
+                Log.w(TAG, "Task launch request failed before a usable response. Starting recovery.", e)
+                recoverLaunchTask(
+                    restBaseUrl = restBaseUrl,
+                    authToken = authToken,
+                    deviceId = deviceId,
+                    draft = draft,
+                    launchStartedAtMs = launchStartedAtMs,
+                    fallbackMessage = "Could not reach Mobilerun. Check the connection and try again.",
+                    completionGate = completionGate,
+                    callback = callback,
+                )
             }
 
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                 response.use {
                     val body = response.body?.string().orEmpty()
+                    val parsedTaskId = parseLaunchTaskId(body)
+                    Log.d(
+                        TAG,
+                        "Launch response code=${response.code} success=${response.isSuccessful} parsedTaskId=${parsedTaskId ?: "<none>"}",
+                    )
                     if (!response.isSuccessful) {
                         val parsedDetail = parseErrorDetail(body)
                         val message = when (response.code) {
@@ -610,28 +780,200 @@ class PortalCloudClient(
                             in 500..599 -> "Mobilerun could not start the task right now. Try again in a moment."
                             else -> parsedDetail ?: "Mobilerun returned an unexpected response."
                         }
-                        callback(PortalTaskLaunchResult.Error(message))
+                        if (response.code !in HARD_LAUNCH_FAILURE_CODES &&
+                            !parsedTaskId.isNullOrBlank()
+                        ) {
+                            completeLaunchOnce(
+                                completionGate,
+                                callback,
+                                PortalTaskLaunchResult.Success(
+                                    PortalTaskLaunchSuccess(taskId = parsedTaskId),
+                                ),
+                            )
+                            return
+                        }
+                        if (response.code !in HARD_LAUNCH_FAILURE_CODES) {
+                            recoverLaunchTask(
+                                restBaseUrl = restBaseUrl,
+                                authToken = authToken,
+                                deviceId = deviceId,
+                                draft = draft,
+                                launchStartedAtMs = launchStartedAtMs,
+                                fallbackMessage = message,
+                                completionGate = completionGate,
+                                callback = callback,
+                            )
+                            return
+                        }
+                        completeLaunchOnce(
+                            completionGate,
+                            callback,
+                            PortalTaskLaunchResult.Error(message),
+                        )
                         return
                     }
 
-                    try {
-                        val json = JSONObject(body)
-                        val taskId = json.optString("id").trim()
-                        if (taskId.isBlank()) {
-                            callback(PortalTaskLaunchResult.Error("Mobilerun returned an unexpected response."))
-                            return
-                        }
-                        callback(
+                    if (!parsedTaskId.isNullOrBlank()) {
+                        completeLaunchOnce(
+                            completionGate,
+                            callback,
                             PortalTaskLaunchResult.Success(
-                                PortalTaskLaunchSuccess(taskId = taskId),
+                                PortalTaskLaunchSuccess(taskId = parsedTaskId),
                             ),
                         )
-                    } catch (_: Exception) {
-                        callback(PortalTaskLaunchResult.Error("Mobilerun returned an unexpected response."))
+                        return
                     }
+
+                    recoverLaunchTask(
+                        restBaseUrl = restBaseUrl,
+                        authToken = authToken,
+                        deviceId = deviceId,
+                        draft = draft,
+                        launchStartedAtMs = launchStartedAtMs,
+                        fallbackMessage = "Mobilerun returned an unexpected response.",
+                        completionGate = completionGate,
+                        callback = callback,
+                    )
                 }
             }
         })
+    }
+
+    private fun recoverLaunchTask(
+        restBaseUrl: String,
+        authToken: String,
+        deviceId: String,
+        draft: PortalTaskDraft,
+        launchStartedAtMs: Long,
+        fallbackMessage: String,
+        completionGate: AtomicBoolean,
+        callback: (PortalTaskLaunchResult) -> Unit,
+    ) {
+        val request = buildListTasksRequest(
+            restBaseUrl = restBaseUrl,
+            authToken = authToken,
+            query = null,
+            page = 1,
+            pageSize = 20,
+        )
+        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                Log.w(TAG, "Launch recovery list request failed. Retrying if time remains.", e)
+                scheduleLaunchRecoveryRetry(
+                    restBaseUrl = restBaseUrl,
+                    authToken = authToken,
+                    deviceId = deviceId,
+                    draft = draft,
+                    launchStartedAtMs = launchStartedAtMs,
+                    fallbackMessage = fallbackMessage,
+                    completionGate = completionGate,
+                    callback = callback,
+                )
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use {
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Launch recovery list request returned ${response.code}. Retrying if time remains.")
+                        scheduleLaunchRecoveryRetry(
+                            restBaseUrl = restBaseUrl,
+                            authToken = authToken,
+                            deviceId = deviceId,
+                            draft = draft,
+                            launchStartedAtMs = launchStartedAtMs,
+                            fallbackMessage = fallbackMessage,
+                            completionGate = completionGate,
+                            callback = callback,
+                        )
+                        return
+                    }
+
+                    val page = parseTaskHistoryPage(response.body?.string().orEmpty())
+                    val recoveredTaskId = findRecoverableTaskId(
+                        page = page,
+                        deviceId = deviceId,
+                        prompt = draft.prompt,
+                        launchStartedAtMs = launchStartedAtMs,
+                    )
+                    if (recoveredTaskId.isNullOrBlank()) {
+                        Log.d(TAG, "Launch recovery did not find a matching task yet. Retrying if time remains.")
+                        scheduleLaunchRecoveryRetry(
+                            restBaseUrl = restBaseUrl,
+                            authToken = authToken,
+                            deviceId = deviceId,
+                            draft = draft,
+                            launchStartedAtMs = launchStartedAtMs,
+                            fallbackMessage = fallbackMessage,
+                            completionGate = completionGate,
+                            callback = callback,
+                        )
+                        return
+                    }
+
+                    Log.i(TAG, "Recovered launched task via recent task history: $recoveredTaskId")
+                    completeLaunchOnce(
+                        completionGate,
+                        callback,
+                        PortalTaskLaunchResult.Success(
+                            PortalTaskLaunchSuccess(taskId = recoveredTaskId),
+                        ),
+                    )
+                }
+            }
+        })
+    }
+
+    private fun scheduleLaunchRecoveryRetry(
+        restBaseUrl: String,
+        authToken: String,
+        deviceId: String,
+        draft: PortalTaskDraft,
+        launchStartedAtMs: Long,
+        fallbackMessage: String,
+        completionGate: AtomicBoolean,
+        callback: (PortalTaskLaunchResult) -> Unit,
+    ) {
+        if (completionGate.get()) return
+
+        val nowMs = System.currentTimeMillis()
+        if (!hasLaunchRecoveryTimeRemaining(launchStartedAtMs, nowMs)) {
+            Log.w(TAG, "Launch recovery window exhausted. Surfacing launch failure.")
+            completeLaunchOnce(
+                completionGate,
+                callback,
+                PortalTaskLaunchResult.Error(fallbackMessage),
+            )
+            return
+        }
+
+        val delayMs = nextLaunchRecoveryDelayMs(launchStartedAtMs, nowMs)
+        Log.d(TAG, "Scheduling launch recovery retry in ${delayMs}ms")
+        LAUNCH_RECOVERY_EXECUTOR.schedule(
+            {
+                recoverLaunchTask(
+                    restBaseUrl = restBaseUrl,
+                    authToken = authToken,
+                    deviceId = deviceId,
+                    draft = draft,
+                    launchStartedAtMs = launchStartedAtMs,
+                    fallbackMessage = fallbackMessage,
+                    completionGate = completionGate,
+                    callback = callback,
+                )
+            },
+            delayMs,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    private fun completeLaunchOnce(
+        completionGate: AtomicBoolean,
+        callback: (PortalTaskLaunchResult) -> Unit,
+        result: PortalTaskLaunchResult,
+    ) {
+        if (completionGate.compareAndSet(false, true)) {
+            callback(result)
+        }
     }
 
     fun getTaskStatus(

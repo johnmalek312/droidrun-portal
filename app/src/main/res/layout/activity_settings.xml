@@ -27,10 +27,6 @@
             android:orientation="vertical"
             android:paddingBottom="24dp">
 
-            <!-- ==================== -->
-            <!-- Connection (always visible) -->
-            <!-- ==================== -->
-
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -193,10 +189,6 @@
                 android:background="@color/divider_color"
                 android:layout_marginVertical="8dp" />
 
-            <!-- ==================== -->
-            <!-- Permissions (always visible) -->
-            <!-- ==================== -->
-
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -315,15 +307,30 @@
                     android:layout_height="wrap_content" />
             </LinearLayout>
 
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Automation"
+                android:textColor="@color/text_gray"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:paddingHorizontal="24dp"
+                android:paddingTop="16dp"
+                android:paddingBottom="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/open_triggers_button"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="24dp"
+                android:text="Open Trigger Rules" />
+
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
                 android:background="@color/divider_color"
                 android:layout_marginVertical="8dp" />
-
-            <!-- ==================== -->
-            <!-- Developer Mode toggle (always visible) -->
-            <!-- ==================== -->
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -359,10 +366,6 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content" />
             </LinearLayout>
-
-            <!-- ==================== -->
-            <!-- Dev Mode Section (hidden when dev mode off) -->
-            <!-- ==================== -->
 
             <LinearLayout
                 android:id="@+id/dev_mode_section"
@@ -595,11 +598,6 @@
                 </LinearLayout>
 
             </LinearLayout>
-
-            <!-- ==================== -->
-            <!-- Reset Button (always visible) -->
-            <!-- ==================== -->
-
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"

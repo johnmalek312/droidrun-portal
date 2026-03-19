@@ -4,13 +4,6 @@ import android.content.Context
 import androidx.annotation.StringRes
 import com.droidrun.portal.R
 import com.droidrun.portal.state.ConnectionState
-import java.time.Instant
-import java.time.LocalDateTime
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 enum class PortalTaskStatusAppearance {
     INFO,
@@ -96,37 +89,7 @@ object PortalTaskUiSupport {
     }
 
     fun formatTimestamp(raw: String?): String? {
-        val normalized = raw?.trim().orEmpty()
-        if (normalized.isEmpty()) return null
-
-        val zoneId = ZoneId.systemDefault()
-        val zonedDateTime = try {
-            OffsetDateTime.parse(normalized).atZoneSameInstant(zoneId)
-        } catch (_: Exception) {
-            try {
-                Instant.parse(normalized).atZone(zoneId)
-            } catch (_: Exception) {
-                try {
-                    LocalDateTime.parse(normalized).atZone(zoneId)
-                } catch (_: Exception) {
-                    try {
-                        LocalDateTime.parse(
-                            normalized.removeSuffix("Z"),
-                            DateTimeFormatter.ISO_LOCAL_DATE_TIME,
-                        ).atOffset(ZoneOffset.UTC).atZoneSameInstant(zoneId)
-                    } catch (_: Exception) {
-                        return normalized
-                    }
-                }
-            }
-        }
-
-        val pattern = if (zonedDateTime.year == LocalDateTime.now(zoneId).year) {
-            "MMM d, HH:mm"
-        } else {
-            "MMM d, yyyy, HH:mm"
-        }
-        return zonedDateTime.format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
+        return PortalTaskTimestampSupport.formatForDisplay(raw)
     }
 
     fun booleanLabel(context: Context, value: Boolean?): String {

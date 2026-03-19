@@ -8,8 +8,7 @@ import com.droidrun.portal.events.model.PortalEvent
 object EventHub {
     private const val TAG = "DroidrunEventHub"
 
-    // Single listener (The WebSocket Server)
-    private var serverListener: ((PortalEvent) -> Unit)? = null
+    private val listeners = linkedSetOf<(PortalEvent) -> Unit>()
 
     // TODO replace
     private var configManager: ConfigManager? = null
@@ -19,14 +18,23 @@ object EventHub {
     }
 
     fun subscribe(callback: (PortalEvent) -> Unit) {
-        serverListener = callback
+        synchronized(listeners) {
+            listeners.add(callback)
+        }
+    }
+
+    fun unsubscribe(callback: (PortalEvent) -> Unit) {
+        synchronized(listeners) {
+            listeners.remove(callback)
+        }
     }
 
     fun emit(event: PortalEvent) {
         // Check if this specific event type is enabled in config
         if (isEventEnabled(event.type)) {
             try {
-                serverListener?.invoke(event)
+                val snapshot = synchronized(listeners) { listeners.toList() }
+                snapshot.forEach { it.invoke(event) }
             } catch (e: Exception) {
                 Log.e(TAG, "Error broadcasting event: ${e.message}")
             }
