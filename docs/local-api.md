@@ -68,6 +68,7 @@ Response format:
 | `install` | `urls`, `hideOverlay` | WebSocket only; supports split APKs |
 
 Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available over reverse connection.
+Trigger management methods (`triggers/*`) are available over the local WebSocket API and reverse connection. See [Triggers and Events](triggers.md) for the exact method list, params, validation rules, and response shape.
 
 Install notes:
 
@@ -128,6 +129,8 @@ curl -X POST \
 ## ContentProvider (ADB)
 
 All commands use `content://com.droidrun.portal/`.
+
+Trigger queries and mutations are also available through the same `ContentProvider`, including `triggers/catalog`, `triggers/status`, rule CRUD, enable/disable, test runs, and run history management. See [Triggers and Events](triggers.md) for the full URI list and `rule_json_base64` examples.
 
 ### Query
 

@@ -52,18 +52,21 @@ Droidrun Portal exposes three local interfaces:
 - ContentProvider (ADB commands)
 
 See [Local API](docs/local-api.md) for full details and examples.
+See [Triggers and Events](docs/triggers.md) for trigger management methods, event taxonomy, and payload contracts.
 
 ### 📡 WebSocket Events
 
 Droidrun Portal streams notification events over WebSocket when enabled in Settings.
 
 See the [WebSocket Events documentation](docs/websocket-events.md) for setup, permissions, and event formats.
+See [Triggers and Events](docs/triggers.md) for the complete `EventType` and `TriggerSource` contract.
 
 ### 🌐 Reverse Connection (Cloud)
 
 Enable reverse connection to let the device initiate an outbound WebSocket connection to a host (used by Mobilerun Cloud).
 
 See [Reverse Connection](docs/reverse-connection.md) for configuration details and the streaming protocol.
+Trigger JSON-RPC methods are documented in [Triggers and Events](docs/triggers.md).
 
 ### 💻 ADB Commands (ContentProvider)
 

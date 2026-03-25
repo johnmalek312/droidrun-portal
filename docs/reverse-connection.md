@@ -47,6 +47,24 @@ Reverse connection uses the same JSON-RPC-style messages as the local WebSocket 
 
 Responses include `status` and `result` or `error`.
 
+## Trigger Management
+
+Reverse connection supports the same trigger JSON-RPC methods as the local WebSocket API:
+
+- `triggers/catalog`
+- `triggers/status`
+- `triggers/rules/list`
+- `triggers/rules/get`
+- `triggers/rules/save`
+- `triggers/rules/delete`
+- `triggers/rules/setEnabled`
+- `triggers/rules/test`
+- `triggers/runs/list`
+- `triggers/runs/delete`
+- `triggers/runs/clear`
+
+These `triggers/*` methods are headless-safe and remain available even if the Accessibility Service is disconnected. See [Triggers and Events](triggers.md) for exact params, `TriggerJson` payload shape, and ADB equivalents.
+
 ## App control
 
 Reverse connection supports the same app commands as local WebSocket:

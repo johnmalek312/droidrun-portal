@@ -1,6 +1,8 @@
 # WebSocket Events
 
-Droidrun Portal includes a WebSocket server that broadcasts real-time events from the device, such as notifications.
+Droidrun Portal includes a WebSocket server that broadcasts real-time events from the device, including notifications, app transitions, battery and power changes, user-present events, network changes, and SMS reception.
+
+For the complete trigger and event contract, including every emitted `EventType`, every rule `TriggerSource`, and the payload keys for each device event, see [Triggers and Events](triggers.md).
 
 ## Setup
 
@@ -48,6 +50,18 @@ This WebSocket also supports JSON-RPC-style commands; see [Local API](local-api.
 ```
 
 ## Event Types
+
+Portal currently emits these event families over WebSocket:
+
+- Notification events: `NOTIFICATION`, `NOTIFICATION_POSTED`, `NOTIFICATION_REMOVED`
+- App events: `APP_ENTERED`, `APP_EXITED`
+- Battery and power events: `BATTERY_LOW`, `BATTERY_OKAY`, `BATTERY_LEVEL_CHANGED`, `POWER_CONNECTED`, `POWER_DISCONNECTED`
+- Device/user events: `USER_PRESENT`
+- Network events: `NETWORK_CONNECTED`, `NETWORK_TYPE_CHANGED`
+- Messaging events: `SMS_RECEIVED`
+- Protocol/internal events: `PING`, `PONG`, `UNKNOWN`
+
+The sections below keep the legacy notification and ping/pong examples. Use [Triggers and Events](triggers.md) as the source of truth for the full contract.
 
 ### PING / PONG
 

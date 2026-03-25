@@ -19,8 +19,11 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.droidrun.portal.R
+import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
+import com.droidrun.portal.core.StateRepository
+import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.streaming.WebRtcManager
@@ -80,6 +83,7 @@ class ReverseConnectionService : Service() {
     private val binder = LocalBinder()
     private lateinit var configManager: ConfigManager
     private lateinit var actionDispatcher: ActionDispatcher
+    private var headlessActionDispatcher: ActionDispatcher? = null
 
     private var webSocketClient: WebSocketClient? = null
     private var isServiceRunning = AtomicBoolean(false)
@@ -509,23 +513,6 @@ class ReverseConnectionService : Service() {
             // Support both integer and string IDs (e.g., UUIDs)
             id = json.opt("id")?.takeIf { it != JSONObject.NULL }
 
-            if (!::actionDispatcher.isInitialized) {
-                synchronized(this) {
-                    if (!::actionDispatcher.isInitialized) {
-                        val service = DroidrunAccessibilityService.getInstance()
-                        if (service == null) {
-                            Log.e(TAG, "Accessibility Service not ready, cannot dispatch command")
-                            webSocketClient?.send(
-                                ApiResponse.Error("Accessibility Service not ready, cannot dispatch command")
-                                    .toJson(id)
-                            )
-                            return
-                        }
-                        actionDispatcher = service.getActionDispatcher()
-                    }
-                }
-            }
-
             // Method may be empty for JSON-RPC responses to outgoing messages (e.g., webrtc/offer)
             val method = json.optString("method", "")
 
@@ -549,13 +536,21 @@ class ReverseConnectionService : Service() {
 
             val normalizedMethod =
                 method.removePrefix("/action/").removePrefix("action.").removePrefix("/")
+            val dispatcher = resolveActionDispatcher(normalizedMethod)
+            if (dispatcher == null) {
+                val error =
+                    "Accessibility Service not ready. Only stream/*, webrtc/*, global, and triggers/* are available."
+                Log.e(TAG, error)
+                webSocketClient?.send(ApiResponse.Error(error).toJson(id))
+                return
+            }
 
             // Don't block ws
             if (normalizedMethod == "install") {
                 val requestId = id
                 installExecutor.submit {
                     try {
-                        val result = actionDispatcher.dispatch(
+                        val result = dispatcher.dispatch(
                             method,
                             params,
                             origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
@@ -576,7 +571,7 @@ class ReverseConnectionService : Service() {
             }
 
             // Execute
-            val result = actionDispatcher.dispatch(
+            val result = dispatcher.dispatch(
                 method,
                 params,
                 origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
@@ -598,6 +593,47 @@ class ReverseConnectionService : Service() {
                     Log.e(TAG, "Error responding with an error")
                 }
             }
+        }
+    }
+
+    private fun buildHeadlessActionDispatcher(): ActionDispatcher {
+        val apiHandler = ApiHandler(
+            stateRepo = StateRepository(service = null),
+            getKeyboardIME = { DroidrunKeyboardIME.getInstance() },
+            getPackageManager = { packageManager },
+            appVersionProvider = {
+                try {
+                    packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
+                } catch (e: Exception) {
+                    "unknown"
+                }
+            },
+            context = this,
+        )
+        return ActionDispatcher(apiHandler)
+    }
+
+    private fun resolveActionDispatcher(normalizedMethod: String): ActionDispatcher? {
+        val service = DroidrunAccessibilityService.getInstance()
+        if (service != null) {
+            if (!::actionDispatcher.isInitialized) {
+                synchronized(this) {
+                    if (!::actionDispatcher.isInitialized) {
+                        actionDispatcher = service.getActionDispatcher()
+                    }
+                }
+            }
+            return actionDispatcher
+        }
+
+        if (!HeadlessActionSupport.isAllowed(normalizedMethod)) {
+            return null
+        }
+
+        headlessActionDispatcher?.let { return it }
+        synchronized(this) {
+            headlessActionDispatcher?.let { return it }
+            return buildHeadlessActionDispatcher().also { headlessActionDispatcher = it }
         }
     }
 }

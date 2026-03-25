@@ -2,6 +2,8 @@ package com.droidrun.portal.service
 
 import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
+import com.droidrun.portal.triggers.TriggerApi
+import com.droidrun.portal.triggers.TriggerApiResult
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -230,6 +232,107 @@ class ActionDispatcherTest {
         assertEquals(
             ApiResponse.Error("Missing required param: 'sessionId'"),
             dispatcher.dispatch("webrtc/ice", params, ActionDispatcher.Origin.WEBSOCKET_REVERSE),
+        )
+    }
+
+    @Test
+    fun dispatch_triggerCatalogStatusAndLists_returnStructuredResults() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val triggerApi = mockk<TriggerApi>()
+        val catalog = JSONObject().apply { put("schemaVersion", 5) }
+        val status = JSONObject().apply { put("ruleCount", 2) }
+        val rules = JSONArray().put(JSONObject().put("id", "rule-1"))
+        val runs = JSONArray().put(JSONObject().put("id", "run-1"))
+        every { triggerApi.catalog() } returns catalog
+        every { triggerApi.status() } returns status
+        every { triggerApi.listRules() } returns rules
+        every { triggerApi.listRuns(25) } returns runs
+
+        val dispatcher = ActionDispatcher(apiHandler, triggerApi)
+
+        assertEquals(ApiResponse.RawObject(catalog), dispatcher.dispatch("triggers/catalog", JSONObject()))
+        assertEquals(ApiResponse.RawObject(status), dispatcher.dispatch("triggers/status", JSONObject()))
+        assertEquals(
+            ApiResponse.RawArray(rules),
+            dispatcher.dispatch("triggers/rules/list", JSONObject()),
+        )
+        assertEquals(
+            ApiResponse.RawArray(runs),
+            dispatcher.dispatch("triggers/runs/list", JSONObject().put("limit", 25)),
+        )
+    }
+
+    @Test
+    fun dispatch_triggerRuleMutations_mapTriggerApiResults() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val triggerApi = mockk<TriggerApi>()
+        val savedRule = JSONObject().put("id", "rule-1")
+        val updatedRule = JSONObject().put("id", "rule-1").put("enabled", false)
+        every { triggerApi.getRule("rule-1") } returns TriggerApiResult.Success(savedRule)
+        every { triggerApi.saveRule(any()) } returns TriggerApiResult.Success(savedRule)
+        every { triggerApi.setRuleEnabled("rule-1", false) } returns TriggerApiResult.Success(updatedRule)
+        every { triggerApi.deleteRule("rule-1") } returns TriggerApiResult.Success("Deleted trigger rule rule-1")
+        every { triggerApi.testRule("rule-1") } returns TriggerApiResult.Success("Test run requested for rule-1")
+        every { triggerApi.deleteRun("run-1") } returns TriggerApiResult.Success("Deleted trigger run run-1")
+        every { triggerApi.clearRuns() } returns TriggerApiResult.Success("Cleared trigger runs")
+
+        val dispatcher = ActionDispatcher(apiHandler, triggerApi)
+
+        assertEquals(
+            ApiResponse.RawObject(savedRule),
+            dispatcher.dispatch("triggers/rules/get", JSONObject().put("ruleId", "rule-1")),
+        )
+        assertEquals(
+            ApiResponse.RawObject(savedRule),
+            dispatcher.dispatch(
+                "triggers/rules/save",
+                JSONObject().put("rule", JSONObject().put("id", "rule-1")),
+            ),
+        )
+        assertEquals(
+            ApiResponse.RawObject(updatedRule),
+            dispatcher.dispatch(
+                "triggers/rules/setEnabled",
+                JSONObject().put("ruleId", "rule-1").put("enabled", false),
+            ),
+        )
+        assertEquals(
+            ApiResponse.Success("Deleted trigger rule rule-1"),
+            dispatcher.dispatch("triggers/rules/delete", JSONObject().put("ruleId", "rule-1")),
+        )
+        assertEquals(
+            ApiResponse.Success("Test run requested for rule-1"),
+            dispatcher.dispatch("triggers/rules/test", JSONObject().put("ruleId", "rule-1")),
+        )
+        assertEquals(
+            ApiResponse.Success("Deleted trigger run run-1"),
+            dispatcher.dispatch("triggers/runs/delete", JSONObject().put("runId", "run-1")),
+        )
+        assertEquals(
+            ApiResponse.Success("Cleared trigger runs"),
+            dispatcher.dispatch("triggers/runs/clear", JSONObject()),
+        )
+    }
+
+    @Test
+    fun dispatch_triggerMethods_requireExpectedParams() {
+        val dispatcher = ActionDispatcher(mockk(relaxed = true), mockk(relaxed = true))
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'ruleId'"),
+            dispatcher.dispatch("triggers/rules/get", JSONObject()),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'rule'"),
+            dispatcher.dispatch("triggers/rules/save", JSONObject()),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'enabled'"),
+            dispatcher.dispatch("triggers/rules/setEnabled", JSONObject().put("ruleId", "rule-1")),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'runId'"),
+            dispatcher.dispatch("triggers/runs/delete", JSONObject()),
         )
     }
 }
