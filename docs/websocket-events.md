@@ -1,6 +1,11 @@
 # WebSocket Events
 
-Droidrun Portal includes a WebSocket server that broadcasts real-time events from the device, such as notifications.
+Droidrun Portal includes a WebSocket server that broadcasts real-time events from the device, including notifications, app transitions, battery and power changes, user-present events, network changes, and SMS reception.
+
+For the complete trigger and event contract, including every emitted `EventType`, every rule `TriggerSource`, and the payload keys for each device event, see [Triggers and Events](triggers.md).
+Local WebSocket defaults to raw unsolicited device event frames. Reverse connection uses
+`{"method":"events/device","params":...}`, and local listeners can opt into that same envelope
+with `?eventFormat=rpc`. See [Reverse Connection](reverse-connection.md).
 
 ## Setup
 
@@ -30,12 +35,13 @@ Connect to `ws://localhost:8081` using any WebSocket client and pass the token:
 
 - Query param: `ws://localhost:8081/?token=YOUR_TOKEN`
 - Or send `Authorization: Bearer YOUR_TOKEN` header
+- Optional RPC local event frames: add `&eventFormat=rpc`
 
 Make sure **Notification Access** is granted and the **Notification** event toggle is enabled in Settings.
 
 ## Event Format
 
-All events follow this structure:
+Local WebSocket unsolicited device events follow this raw structure by default:
 
 This WebSocket also supports JSON-RPC-style commands; see [Local API](local-api.md) for the command format and methods.
 
@@ -48,6 +54,23 @@ This WebSocket also supports JSON-RPC-style commands; see [Local API](local-api.
 ```
 
 ## Event Types
+
+Portal currently emits these event families over WebSocket:
+
+- Notification events: `NOTIFICATION`, `NOTIFICATION_POSTED`, `NOTIFICATION_REMOVED`
+- App events: `APP_ENTERED`, `APP_EXITED`
+- Battery and power events: `BATTERY_LOW`, `BATTERY_OKAY`, `BATTERY_LEVEL_CHANGED`, `POWER_CONNECTED`, `POWER_DISCONNECTED`
+- Device/user events: `USER_PRESENT`
+- Network events: `NETWORK_CONNECTED`, `NETWORK_TYPE_CHANGED`
+- Messaging events: `SMS_RECEIVED`
+- Protocol/internal events: `PING`, `PONG`, `UNKNOWN`
+
+The sections below keep the legacy notification and ping/pong examples. Use [Triggers and Events](triggers.md) as the source of truth for the full contract.
+
+If you want the same envelope used by reverse connection, connect with `?eventFormat=rpc` and
+expect `{"method":"events/device","params":...}`. `?eventFormat=legacy` is still accepted as
+an explicit request for the default raw format. Raw `PING` / `PONG` compatibility also remains
+available on the local socket.
 
 ### PING / PONG
 
@@ -105,6 +128,9 @@ Use the included test script to connect and listen for events:
 # Install dependencies
 pip install websockets
 
+# Run the end-to-end smoke script (local default + local RPC + reverse)
+python3 scripts/check_event_streams.py --mode both
+
 # Run the test script (automatically sets up ADB forward)
 python test_websocket.py 8081 YOUR_TOKEN
 
@@ -113,7 +139,16 @@ PORTAL_TOKEN=YOUR_TOKEN python test_websocket.py
 
 # Or specify a custom port
 python test_websocket.py 8082 YOUR_TOKEN
+
+# Or explicitly request the reverse-style local RPC envelope
+python test_websocket.py 8081 YOUR_TOKEN --rpc-events
 ```
+
+The smoke script configures reverse connection through the ContentProvider's base64-backed
+string fields (`url_base64`, `token_base64`, `service_key_base64`) so WebSocket URLs and
+tokens survive shell parsing. When `run-as` is available, it snapshots the previous reverse
+URL/token and restores them, along with the prior reverse-service running state, during
+cleanup.
 
 Example output:
 

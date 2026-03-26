@@ -52,18 +52,21 @@ Droidrun Portal exposes three local interfaces:
 - ContentProvider (ADB commands)
 
 See [Local API](docs/local-api.md) for full details and examples.
+See [Triggers and Events](docs/triggers.md) for trigger management methods, event taxonomy, and payload contracts.
 
 ### 📡 WebSocket Events
 
 Droidrun Portal streams notification events over WebSocket when enabled in Settings.
 
 See the [WebSocket Events documentation](docs/websocket-events.md) for setup, permissions, and event formats.
+See [Triggers and Events](docs/triggers.md) for the complete `EventType` and `TriggerSource` contract.
 
 ### 🌐 Reverse Connection (Cloud)
 
 Enable reverse connection to let the device initiate an outbound WebSocket connection to a host (used by Mobilerun Cloud).
 
 See [Reverse Connection](docs/reverse-connection.md) for configuration details and the streaming protocol.
+Trigger JSON-RPC methods are documented in [Triggers and Events](docs/triggers.md).
 
 ### 💻 ADB Commands (ContentProvider)
 
@@ -135,8 +138,8 @@ adb shell content insert --uri content://com.droidrun.portal/socket_port --bind 
 adb shell content insert --uri content://com.droidrun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
 
 # Configure reverse connection (host URL + optional token/service key)
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url:s:"wss://api.mobilerun.ai/v1/providers/personal/join" --bind token:s:"YOUR_TOKEN" --bind enabled:b:true
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind service_key:s:"YOUR_KEY"
+adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
+adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
 
 # Toggle production mode UI
 adb shell content insert --uri content://com.droidrun.portal/toggle_production_mode --bind enabled:b:true

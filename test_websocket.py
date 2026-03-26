@@ -1,9 +1,11 @@
+import argparse
 import asyncio
-import websockets
 import json
-import subprocess
-import sys
 import os
+import subprocess
+from urllib.parse import urlencode
+
+import websockets
 
 DEFAULT_PORT = 8081
 DEFAULT_TOKEN = os.environ.get("PORTAL_TOKEN", "").strip()
@@ -32,14 +34,36 @@ def setup_adb_forward(port: int = DEFAULT_PORT) -> bool:
         return False
 
 
-def build_ws_uri(port: int, token: str) -> str:
+def build_ws_uri(port: int, token: str, event_format: str | None) -> str:
+    params = {}
     if token:
-        return f"ws://localhost:{port}/?token={token}"
-    return f"ws://localhost:{port}"
+        params["token"] = token
+    if event_format:
+        params["eventFormat"] = event_format
+
+    base_uri = f"ws://localhost:{port}"
+    if not params:
+        return base_uri
+    return f"{base_uri}/?{urlencode(params)}"
 
 
-async def test_connection(port: int = DEFAULT_PORT, token: str = ""):
-    uri = build_ws_uri(port, token)
+def extract_event_payload(message: dict) -> dict | None:
+    if message.get("method") == "events/device":
+        params = message.get("params")
+        if isinstance(params, dict):
+            return params
+        return None
+    if "type" in message:
+        return message
+    return None
+
+
+async def test_connection(
+    port: int = DEFAULT_PORT,
+    token: str = "",
+    event_format: str | None = None,
+):
+    uri = build_ws_uri(port, token, event_format)
     print(f"Connecting to {uri}...")
 
     try:
@@ -70,7 +94,12 @@ async def test_connection(port: int = DEFAULT_PORT, token: str = ""):
             while True:
                 msg = await websocket.recv()
                 try:
-                    event = json.loads(msg)
+                    message = json.loads(msg)
+                    event = extract_event_payload(message)
+                    if event is None:
+                        print(f"Non-device message: {message}\n")
+                        continue
+
                     event_type = event.get("type", "UNKNOWN")
                     timestamp = event.get("timestamp", "")
                     payload = event.get("payload", {})
@@ -93,28 +122,36 @@ async def test_connection(port: int = DEFAULT_PORT, token: str = ""):
 
 
 def main():
-    port = DEFAULT_PORT
-    token = DEFAULT_TOKEN
-
-    # Parse optional port argument
-    if len(sys.argv) > 1:
-        try:
-            port = int(sys.argv[1])
-        except ValueError:
-            print(f"Usage: {sys.argv[0]} [port] [token]")
-            print(f"  Default port: {DEFAULT_PORT}")
-            sys.exit(1)
-
-    if len(sys.argv) > 2:
-        token = sys.argv[2].strip()
+    parser = argparse.ArgumentParser(description="Listen for local Portal WebSocket events.")
+    parser.add_argument("port", nargs="?", type=int, default=DEFAULT_PORT)
+    parser.add_argument("token", nargs="?", default=DEFAULT_TOKEN)
+    event_mode = parser.add_mutually_exclusive_group()
+    event_mode.add_argument(
+        "--legacy-events",
+        action="store_true",
+        help="explicitly request legacy raw local event frames via ?eventFormat=legacy",
+    )
+    event_mode.add_argument(
+        "--rpc-events",
+        action="store_true",
+        help="request RPC-wrapped local device events via ?eventFormat=rpc",
+    )
+    args = parser.parse_args()
 
     # Set up ADB forwarding first
-    if not setup_adb_forward(port):
+    if not setup_adb_forward(args.port):
         print("\nContinuing anyway in case forward is already set up...")
 
     # Run the WebSocket listener
     try:
-        asyncio.run(test_connection(port, token))
+        event_format = "rpc" if args.rpc_events else "legacy" if args.legacy_events else None
+        asyncio.run(
+            test_connection(
+                port=args.port,
+                token=args.token.strip(),
+                event_format=event_format,
+            )
+        )
     except KeyboardInterrupt:
         print("\nTest stopped by user")
 

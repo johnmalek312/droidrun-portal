@@ -68,6 +68,14 @@ Response format:
 | `install` | `urls`, `hideOverlay` | WebSocket only; supports split APKs |
 
 Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available over reverse connection.
+Trigger management methods (`triggers/*`) are available over the local WebSocket API and reverse connection. See [Triggers and Events](triggers.md) for the exact method list, params, validation rules, and response shape.
+Local WebSocket sends unsolicited device events as raw
+`{ "type": "...", "timestamp": ..., "payload": { ... } }` by default. Add
+`?eventFormat=rpc` to request the same
+`{ "method": "events/device", "params": { ... } }` envelope used by reverse connection.
+`?eventFormat=legacy` is an explicit no-op for the default raw format. Raw local `PING` /
+`PONG` compatibility remains unchanged. See [Reverse Connection](reverse-connection.md) for
+the reverse notification shape.
 
 Install notes:
 
@@ -129,6 +137,8 @@ curl -X POST \
 
 All commands use `content://com.droidrun.portal/`.
 
+Trigger queries and mutations are also available through the same `ContentProvider`, including `triggers/catalog`, `triggers/status`, rule CRUD, enable/disable, test runs, and run history management. See [Triggers and Events](triggers.md) for the full URI list and `rule_json_base64` examples.
+
 ### Query
 
 ```bash
@@ -156,8 +166,8 @@ adb shell content insert --uri content://com.droidrun.portal/socket_port --bind 
 
 adb shell content insert --uri content://com.droidrun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
 
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url:s:"wss://api.mobilerun.ai/v1/providers/personal/join" --bind token:s:"YOUR_TOKEN" --bind enabled:b:true
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind service_key:s:"YOUR_KEY"
+adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
+adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
 
 adb shell content insert --uri content://com.droidrun.portal/toggle_production_mode --bind enabled:b:true
 ```

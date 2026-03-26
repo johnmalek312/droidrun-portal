@@ -13,6 +13,8 @@ import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
+import com.droidrun.portal.triggers.TriggerApi
+import com.droidrun.portal.triggers.TriggerApiResult
 
 import android.util.Base64
 
@@ -37,6 +39,17 @@ class DroidrunContentProvider : ContentProvider() {
         private const val CONFIGURE_REVERSE_CONNECTION = 15
         private const val TOGGLE_PRODUCTION_MODE = 16
         private const val TOGGLE_SOCKET_SERVER = 17
+        private const val TRIGGERS_CATALOG = 18
+        private const val TRIGGERS_STATUS = 19
+        private const val TRIGGERS_RULES = 20
+        private const val TRIGGERS_RULE = 21
+        private const val TRIGGERS_RUNS = 22
+        private const val TRIGGERS_RULES_SAVE = 23
+        private const val TRIGGERS_RULES_DELETE = 24
+        private const val TRIGGERS_RULES_SET_ENABLED = 25
+        private const val TRIGGERS_RULES_TEST = 26
+        private const val TRIGGERS_RUNS_DELETE = 27
+        private const val TRIGGERS_RUNS_CLEAR = 28
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -56,6 +69,17 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "configure_reverse_connection", CONFIGURE_REVERSE_CONNECTION)
             addURI(AUTHORITY, "toggle_production_mode", TOGGLE_PRODUCTION_MODE)
             addURI(AUTHORITY, "toggle_socket_server", TOGGLE_SOCKET_SERVER)
+            addURI(AUTHORITY, "triggers/catalog", TRIGGERS_CATALOG)
+            addURI(AUTHORITY, "triggers/status", TRIGGERS_STATUS)
+            addURI(AUTHORITY, "triggers/rules", TRIGGERS_RULES)
+            addURI(AUTHORITY, "triggers/rules/save", TRIGGERS_RULES_SAVE)
+            addURI(AUTHORITY, "triggers/rules/delete", TRIGGERS_RULES_DELETE)
+            addURI(AUTHORITY, "triggers/rules/set_enabled", TRIGGERS_RULES_SET_ENABLED)
+            addURI(AUTHORITY, "triggers/rules/test", TRIGGERS_RULES_TEST)
+            addURI(AUTHORITY, "triggers/rules/*", TRIGGERS_RULE)
+            addURI(AUTHORITY, "triggers/runs", TRIGGERS_RUNS)
+            addURI(AUTHORITY, "triggers/runs/delete", TRIGGERS_RUNS_DELETE)
+            addURI(AUTHORITY, "triggers/runs/clear", TRIGGERS_RUNS_CLEAR)
         }
     }
 
@@ -101,6 +125,11 @@ class DroidrunContentProvider : ContentProvider() {
         return apiHandler
     }
 
+    private fun getTriggerApi(): TriggerApi? {
+        val appContext = context?.applicationContext ?: return null
+        return TriggerApi(appContext)
+    }
+
     override fun query(
         uri: Uri,
         projection: Array<String>?,
@@ -115,6 +144,12 @@ class DroidrunContentProvider : ContentProvider() {
             val response = when (match) {
                 VERSION -> ApiResponse.Success(getAppVersion())
                 AUTH_TOKEN -> ApiResponse.Text(configManager.authToken)
+                TRIGGERS_CATALOG,
+                TRIGGERS_STATUS,
+                TRIGGERS_RULES,
+                TRIGGERS_RULE,
+                TRIGGERS_RUNS,
+                -> handleTriggerQuery(match, uri)
                 else -> {
                     val handler = getHandler()
                     if (handler == null) {
@@ -155,6 +190,24 @@ class DroidrunContentProvider : ContentProvider() {
         return cursor
     }
 
+    private fun handleTriggerQuery(match: Int, uri: Uri): ApiResponse {
+        val triggerApi = getTriggerApi() ?: return ApiResponse.Error("Trigger API unavailable")
+        return when (match) {
+            TRIGGERS_CATALOG -> ApiResponse.RawObject(triggerApi.catalog())
+            TRIGGERS_STATUS -> ApiResponse.RawObject(triggerApi.status())
+            TRIGGERS_RULES -> ApiResponse.RawArray(triggerApi.listRules())
+            TRIGGERS_RULE -> mapTriggerResult(
+                triggerApi.getRule(uri.lastPathSegment.orEmpty()),
+            ) { ApiResponse.RawObject(it) }
+
+            TRIGGERS_RUNS -> ApiResponse.RawArray(
+                triggerApi.listRuns(uri.getQueryParameter("limit")?.toIntOrNull() ?: 50),
+            )
+
+            else -> ApiResponse.Error("Unknown trigger endpoint: ${uri.path}")
+        }
+    }
+
     private fun getStringValue(values: ContentValues?, key: String): String? {
         if (values == null) return null
         if (values.containsKey(key)) return values.getAsString(key)
@@ -173,6 +226,11 @@ class DroidrunContentProvider : ContentProvider() {
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? {
+        val triggerResult = handleTriggerInsert(uri, values)
+        if (triggerResult != null) {
+            return mutationResultUri(triggerResult)
+        }
+
         val handler = getHandler()
         if (handler == null) {
             return "content://$AUTHORITY/result?status=error&message=${Uri.encode("Accessibility service not available")}".toUri()
@@ -296,6 +354,82 @@ class DroidrunContentProvider : ContentProvider() {
         } else {
             val errorMsg = (result as ApiResponse.Error).message
             "content://$AUTHORITY/result?status=error&message=${Uri.encode(errorMsg)}".toUri()
+        }
+    }
+
+    private fun handleTriggerInsert(
+        uri: Uri,
+        values: ContentValues?,
+    ): TriggerApiResult<*>? {
+        val match = uriMatcher.match(uri)
+        val triggerApi = getTriggerApi() ?: return when (match) {
+            TRIGGERS_RULES_SAVE,
+            TRIGGERS_RULES_DELETE,
+            TRIGGERS_RULES_SET_ENABLED,
+            TRIGGERS_RULES_TEST,
+            TRIGGERS_RUNS_DELETE,
+            TRIGGERS_RUNS_CLEAR,
+            -> TriggerApiResult.Error("Trigger API unavailable")
+
+            else -> null
+        }
+        return when (match) {
+            TRIGGERS_RULES_SAVE -> {
+                val ruleJson = getStringValue(values, "rule_json")
+                    ?: return TriggerApiResult.Error("Missing required value: rule_json")
+                triggerApi.saveRule(ruleJson)
+            }
+
+            TRIGGERS_RULES_DELETE -> {
+                val ruleId = getStringValue(values, "rule_id")
+                    ?: return TriggerApiResult.Error("Missing required value: rule_id")
+                triggerApi.deleteRule(ruleId)
+            }
+
+            TRIGGERS_RULES_SET_ENABLED -> {
+                val ruleId = getStringValue(values, "rule_id")
+                    ?: return TriggerApiResult.Error("Missing required value: rule_id")
+                val enabled = values?.getAsBoolean("enabled")
+                    ?: return TriggerApiResult.Error("Missing required value: enabled")
+                triggerApi.setRuleEnabled(ruleId, enabled)
+            }
+
+            TRIGGERS_RULES_TEST -> {
+                val ruleId = getStringValue(values, "rule_id")
+                    ?: return TriggerApiResult.Error("Missing required value: rule_id")
+                triggerApi.testRule(ruleId)
+            }
+
+            TRIGGERS_RUNS_DELETE -> {
+                val runId = getStringValue(values, "run_id")
+                    ?: return TriggerApiResult.Error("Missing required value: run_id")
+                triggerApi.deleteRun(runId)
+            }
+
+            TRIGGERS_RUNS_CLEAR -> triggerApi.clearRuns()
+            else -> null
+        }
+    }
+
+    private fun mutationResultUri(result: TriggerApiResult<*>): Uri {
+        return when (result) {
+            is TriggerApiResult.Error ->
+                "content://$AUTHORITY/result?status=error&message=${Uri.encode(result.message)}".toUri()
+
+            is TriggerApiResult.Success<*> -> {
+                val message = result.message ?: "ok"
+                "content://$AUTHORITY/result?status=success&message=${Uri.encode(message)}".toUri()
+            }
+        }
+    }
+
+    private fun <T> mapTriggerResult(
+        result: TriggerApiResult<T>,
+        onSuccess: (T) -> ApiResponse,
+    ): ApiResponse {
+        return when (result) {
+            is TriggerApiResult.Error -> ApiResponse.Error(result.message)
+            is TriggerApiResult.Success -> onSuccess(result.value)
         }
     }
 

@@ -253,7 +253,7 @@ object TriggerJson {
             dailyMinute = json.optNullableInt("dailyMinute"),
             weeklyDaysOfWeek = json.optNullableIntList("weeklyDaysOfWeek"),
             weeklyDayOfWeek = json.optNullableInt("weeklyDayOfWeek"),
-            maxLaunchCount = json.optNullableInt("maxLaunchCount")?.takeIf { it > 0 },
+            maxLaunchCount = json.optNullableInt("maxLaunchCount"),
             successfulLaunchCount = json.optInt("successfulLaunchCount", 0).coerceAtLeast(0),
             returnToPortal = json.optBoolean("returnToPortal", false),
             taskSettingsOverride = taskSettingsFromJson(json.optJSONObject("taskSettingsOverride")),

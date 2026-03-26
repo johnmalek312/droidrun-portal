@@ -72,6 +72,8 @@ class ApiHandler(
     }
 
     private val installLock = Any()
+    val applicationContext: Context
+        get() = context.applicationContext
 
     private fun getAvailableInternalBytes(): Long? {
         return try {

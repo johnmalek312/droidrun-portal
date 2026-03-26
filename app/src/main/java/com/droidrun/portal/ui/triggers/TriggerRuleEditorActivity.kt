@@ -22,6 +22,7 @@ import com.droidrun.portal.triggers.TriggerBusyPolicy
 import com.droidrun.portal.triggers.TriggerEditorSupport
 import com.droidrun.portal.triggers.TriggerNetworkType
 import com.droidrun.portal.triggers.TriggerRule
+import com.droidrun.portal.triggers.TriggerRuleValidator
 import com.droidrun.portal.triggers.TriggerRuntime
 import com.droidrun.portal.triggers.TriggerSource
 import com.droidrun.portal.triggers.TriggerStringMatchMode
@@ -572,12 +573,6 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         val thresholdValue = binding.inputThresholdValue.text?.toString()?.trim()
             ?.takeIf { it.isNotBlank() }
             ?.toIntOrNull()
-        if (selectedSource == TriggerSource.BATTERY_LEVEL_CHANGED) {
-            if (thresholdValue == null || thresholdValue !in 0..100) {
-                binding.thresholdValueLayout.error = "Enter a battery level between 0 and 100"
-                return null
-            }
-        }
 
         val maxLaunchCount = if (!capabilities.supportsRunLimit) {
             null
@@ -605,10 +600,6 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         val absoluteTimeMillis = when (selectedSource) {
             TriggerSource.TIME_DELAY -> {
                 val delayMinutes = selectedDelayMinutes
-                if (delayMinutes == null || delayMinutes <= 0) {
-                    Toast.makeText(this, "Choose a delay longer than zero minutes", Toast.LENGTH_SHORT).show()
-                    return null
-                }
                 if (originalRule?.source == TriggerSource.TIME_DELAY &&
                     originalRule?.delayMinutes == delayMinutes
                 ) {
@@ -619,30 +610,10 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             }
 
             TriggerSource.TIME_ABSOLUTE -> {
-                val scheduledAt = buildAbsoluteTimeMillis()
-                if (scheduledAt == null) {
-                    Toast.makeText(this, "Choose both a date and a time", Toast.LENGTH_SHORT).show()
-                    return null
-                }
-                if (scheduledAt <= System.currentTimeMillis()) {
-                    Toast.makeText(this, "Choose a future date and time", Toast.LENGTH_SHORT).show()
-                    return null
-                }
-                scheduledAt
+                buildAbsoluteTimeMillis()
             }
 
             else -> null
-        }
-
-        if (selectedSource == TriggerSource.TIME_DAILY || selectedSource == TriggerSource.TIME_WEEKLY) {
-            if (selectedRecurringHour == null || selectedRecurringMinute == null) {
-                Toast.makeText(this, "Choose a recurring time", Toast.LENGTH_SHORT).show()
-                return null
-            }
-            if (selectedSource == TriggerSource.TIME_WEEKLY && selectedWeekdays().isEmpty()) {
-                Toast.makeText(this, "Choose at least one weekday", Toast.LENGTH_SHORT).show()
-                return null
-            }
         }
 
         val seed = originalRule ?: TriggerRule(
@@ -652,47 +623,77 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             busyPolicy = TriggerBusyPolicy.SKIP,
         )
         val weeklyDays = selectedWeekdays().takeIf { selectedSource == TriggerSource.TIME_WEEKLY }
-        return TriggerEditorSupport.sanitize(
-            seed.copy(
-                enabled = binding.switchRuleEnabled.isChecked,
-                name = ruleName,
-                source = selectedSource,
-                promptTemplate = promptTemplate,
-                cooldownSeconds = cooldownSeconds ?: 0,
-                busyPolicy = TriggerBusyPolicy.SKIP,
-                stringMatchMode = selectedMatchMode(),
-                packageName = binding.inputPackageName.text?.toString(),
-                titleFilter = binding.inputTitleFilter.text?.toString(),
-                textFilter = binding.inputTextFilter.text?.toString(),
-                thresholdValue = thresholdValue,
-                thresholdComparison = selectedThresholdComparison(),
-                networkType = selectedNetworkType(),
-                phoneNumberFilter = binding.inputPhoneNumber.text?.toString(),
-                messageFilter = binding.inputMessageFilter.text?.toString(),
-                absoluteTimeMillis = absoluteTimeMillis,
-                delayMinutes = if (selectedSource == TriggerSource.TIME_DELAY) selectedDelayMinutes else null,
-                dailyHour = if (selectedSource == TriggerSource.TIME_DAILY ||
-                    selectedSource == TriggerSource.TIME_WEEKLY
-                ) {
-                    selectedRecurringHour
-                } else {
-                    null
-                },
-                dailyMinute = if (selectedSource == TriggerSource.TIME_DAILY ||
-                    selectedSource == TriggerSource.TIME_WEEKLY
-                ) {
-                    selectedRecurringMinute
-                } else {
-                    null
-                },
-                weeklyDaysOfWeek = weeklyDays,
-                weeklyDayOfWeek = weeklyDays?.firstOrNull(),
-                maxLaunchCount = maxLaunchCount,
-                successfulLaunchCount = originalRule?.successfulLaunchCount ?: 0,
-                returnToPortal = binding.switchReturnToPortal.isChecked,
-                taskSettingsOverride = overrideSettings,
-            ),
+        val candidate = seed.copy(
+            enabled = binding.switchRuleEnabled.isChecked,
+            name = ruleName,
+            source = selectedSource,
+            promptTemplate = promptTemplate,
+            cooldownSeconds = cooldownSeconds ?: 0,
+            busyPolicy = TriggerBusyPolicy.SKIP,
+            stringMatchMode = selectedMatchMode(),
+            packageName = binding.inputPackageName.text?.toString(),
+            titleFilter = binding.inputTitleFilter.text?.toString(),
+            textFilter = binding.inputTextFilter.text?.toString(),
+            thresholdValue = thresholdValue,
+            thresholdComparison = selectedThresholdComparison(),
+            networkType = selectedNetworkType(),
+            phoneNumberFilter = binding.inputPhoneNumber.text?.toString(),
+            messageFilter = binding.inputMessageFilter.text?.toString(),
+            absoluteTimeMillis = absoluteTimeMillis,
+            delayMinutes = if (selectedSource == TriggerSource.TIME_DELAY) selectedDelayMinutes else null,
+            dailyHour = if (selectedSource == TriggerSource.TIME_DAILY ||
+                selectedSource == TriggerSource.TIME_WEEKLY
+            ) {
+                selectedRecurringHour
+            } else {
+                null
+            },
+            dailyMinute = if (selectedSource == TriggerSource.TIME_DAILY ||
+                selectedSource == TriggerSource.TIME_WEEKLY
+            ) {
+                selectedRecurringMinute
+            } else {
+                null
+            },
+            weeklyDaysOfWeek = weeklyDays,
+            weeklyDayOfWeek = weeklyDays?.firstOrNull(),
+            maxLaunchCount = maxLaunchCount,
+            successfulLaunchCount = originalRule?.successfulLaunchCount ?: 0,
+            returnToPortal = binding.switchReturnToPortal.isChecked,
+            taskSettingsOverride = overrideSettings,
         )
+        val validation = TriggerRuleValidator.validateForSave(candidate)
+        if (!validation.isValid) {
+            applyValidationIssues(validation)
+            return null
+        }
+        return validation.rule
+    }
+
+    private fun applyValidationIssues(validation: TriggerRuleValidator.Result) {
+        validation.firstIssueFor(TriggerRuleValidator.Field.NAME)?.let {
+            binding.inputRuleNameLayout.error = it.message
+        }
+        validation.firstIssueFor(TriggerRuleValidator.Field.PROMPT_TEMPLATE)?.let {
+            binding.inputPromptTemplateLayout.error = it.message
+        }
+        validation.firstIssueFor(TriggerRuleValidator.Field.COOLDOWN_SECONDS)?.let {
+            binding.inputCooldownSecondsLayout.error = it.message
+        }
+        validation.firstIssueFor(TriggerRuleValidator.Field.THRESHOLD_VALUE)?.let {
+            binding.thresholdValueLayout.error = it.message
+        }
+        validation.firstIssueFor(TriggerRuleValidator.Field.MAX_LAUNCH_COUNT)?.let {
+            binding.customRunLimitLayout.error = it.message
+        }
+
+        val toastMessage = validation.firstIssueFor(TriggerRuleValidator.Field.DELAY_MINUTES)?.message
+            ?: validation.firstIssueFor(TriggerRuleValidator.Field.ABSOLUTE_TIME)?.message
+            ?: validation.firstIssueFor(TriggerRuleValidator.Field.RECURRING_TIME)?.message
+            ?: validation.firstIssueFor(TriggerRuleValidator.Field.WEEKLY_DAYS)?.message
+        if (!toastMessage.isNullOrBlank()) {
+            Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun saveRule(finishAfterSave: Boolean, showToast: Boolean): TriggerRule? {

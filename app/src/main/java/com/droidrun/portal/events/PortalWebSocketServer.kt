@@ -24,15 +24,24 @@ class PortalWebSocketServer(
         private const val TAG = "PortalWSServer"
         private const val AUTHORIZATION_HEADER = "Authorization"
         private const val BEARER_PREFIX = "Bearer "
-        private const val TOKEN_QUERY_PARAM_PREFIX = "token="
         private const val HTTP_UNAUTHORIZED_CODE = 401
         private const val EXPECTED_REQUEST_ID_BYTES = 36
         private const val UNAUTHORIZED = "Unauthorized"
     }
 
     private val installExecutor = Executors.newSingleThreadExecutor()
+    private val localDeviceEventRelay = LocalDeviceEventRelay(
+        connectionsProvider = { connections.toList() },
+        onSendFailure = { connection, error ->
+            Log.e(
+                TAG,
+                "Failed to send local device event to ${connection.remoteSocketAddress}",
+                error,
+            )
+        },
+    )
     private val eventListener: (PortalEvent) -> Unit = { event ->
-        broadcast(event.toJson())
+        localDeviceEventRelay.emit(event)
     }
 
     override fun onWebsocketHandshakeReceivedAsServer(
@@ -49,15 +58,8 @@ class PortalWebSocketServer(
         }
 
         // Fallback: Check query param (e.g. /?token=abc)
-        if (token.isNullOrEmpty() && descriptor.contains(TOKEN_QUERY_PARAM_PREFIX)) {
-            val query = descriptor.substringAfter("?")
-            val params = query.split("&")
-            for (param in params) {
-                if (param.startsWith(TOKEN_QUERY_PARAM_PREFIX)) {
-                    token = param.removePrefix(TOKEN_QUERY_PARAM_PREFIX)
-                    break
-                }
-            }
+        if (token.isNullOrEmpty()) {
+            token = LocalDeviceEventRouting.extractToken(descriptor)
         }
 
         // Validate Token
@@ -73,11 +75,15 @@ class PortalWebSocketServer(
     }
 
     override fun onOpen(conn: WebSocket?, handshake: ClientHandshake?) {
+        if (conn != null) {
+            localDeviceEventRelay.register(conn, handshake?.resourceDescriptor)
+        }
         Log.d(TAG, "New connection from ${conn?.remoteSocketAddress}")
     }
 
     override fun onClose(conn: WebSocket?, code: Int, reason: String?, remote: Boolean) {
         Log.d(TAG, "Connection closed: $reason")
+        localDeviceEventRelay.unregister(conn)
     }
 
     override fun onMessage(conn: WebSocket?, message: String?) {
@@ -171,6 +177,7 @@ class PortalWebSocketServer(
 
     override fun onError(conn: WebSocket?, ex: Exception?) {
         Log.e(TAG, "WebSocket Error: ${ex?.message}")
+        localDeviceEventRelay.unregister(conn)
     }
 
     override fun onStart() {

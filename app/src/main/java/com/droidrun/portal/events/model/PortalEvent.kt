@@ -7,20 +7,30 @@ data class PortalEvent(
     val timestamp: Long = System.currentTimeMillis(),
     val payload: Any? = null
 ) {
-    fun toJson(): String {
-        val json = JSONObject()
-        json.put("type", type.name)
-        json.put("timestamp", timestamp)
-        
-        when (payload) {
-            is Map<*, *> -> json.put("payload", JSONObject(payload))
-            is JSONObject -> json.put("payload", payload)
-            is String -> json.put("payload", payload)
-            null -> {} // No payload
-            else -> json.put("payload", payload.toString())
+    fun toJsonObject(): JSONObject {
+        return JSONObject().apply {
+            put("type", type.name)
+            put("timestamp", timestamp)
+
+            when (payload) {
+                is Map<*, *> -> put("payload", JSONObject(payload))
+                is JSONObject -> put("payload", payload)
+                is String -> put("payload", payload)
+                null -> Unit
+                else -> put("payload", payload.toString())
+            }
         }
-        
-        return json.toString()
+    }
+
+    fun toJson(): String {
+        return toJsonObject().toString()
+    }
+
+    fun toReverseNotificationJson(): String {
+        return JSONObject().apply {
+            put("method", "events/device")
+            put("params", toJsonObject())
+        }.toString()
     }
     
     companion object {

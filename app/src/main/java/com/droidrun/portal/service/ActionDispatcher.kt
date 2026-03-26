@@ -2,6 +2,8 @@ package com.droidrun.portal.service
 
 import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
+import com.droidrun.portal.triggers.TriggerApi
+import com.droidrun.portal.triggers.TriggerApiResult
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -10,7 +12,10 @@ import org.json.JSONObject
  * Used by both HTTP (SocketServer) and WebSocket (PortalWebSocketServer) layers
  * to ensure consistent behavior and avoid code duplication.
  */
-class ActionDispatcher(private val apiHandler: ApiHandler) {
+class ActionDispatcher(
+    private val apiHandler: ApiHandler,
+    private val triggerApi: TriggerApi? = null,
+) {
 
     companion object {
         private const val DEFAULT_SWIPE_DURATION_MS = 300
@@ -20,6 +25,10 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
         HTTP,
         WEBSOCKET_LOCAL,
         WEBSOCKET_REVERSE,
+    }
+
+    private val resolvedTriggerApi: TriggerApi by lazy {
+        triggerApi ?: TriggerApi(apiHandler.applicationContext)
     }
 
     /**
@@ -137,6 +146,91 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 apiHandler.getTime()
             }
 
+            "triggers/catalog" -> {
+                ApiResponse.RawObject(resolvedTriggerApi.catalog())
+            }
+
+            "triggers/status" -> {
+                ApiResponse.RawObject(resolvedTriggerApi.status())
+            }
+
+            "triggers/rules/list" -> {
+                ApiResponse.RawArray(resolvedTriggerApi.listRules())
+            }
+
+            "triggers/rules/get" -> {
+                val ruleId = params.optString("ruleId")
+                if (ruleId.isNullOrBlank()) {
+                    return ApiResponse.Error("Missing required param: 'ruleId'")
+                }
+                mapTriggerResult(resolvedTriggerApi.getRule(ruleId)) {
+                    ApiResponse.RawObject(it)
+                }
+            }
+
+            "triggers/rules/save" -> {
+                val rule = params.optJSONObject("rule")
+                    ?: return ApiResponse.Error("Missing required param: 'rule'")
+                mapTriggerResult(resolvedTriggerApi.saveRule(rule.toString())) {
+                    ApiResponse.RawObject(it)
+                }
+            }
+
+            "triggers/rules/delete" -> {
+                val ruleId = params.optString("ruleId")
+                if (ruleId.isNullOrBlank()) {
+                    return ApiResponse.Error("Missing required param: 'ruleId'")
+                }
+                mapTriggerResult(resolvedTriggerApi.deleteRule(ruleId)) {
+                    ApiResponse.Success(it)
+                }
+            }
+
+            "triggers/rules/setEnabled" -> {
+                val ruleId = params.optString("ruleId")
+                if (ruleId.isNullOrBlank()) {
+                    return ApiResponse.Error("Missing required param: 'ruleId'")
+                }
+                if (!params.has("enabled")) {
+                    return ApiResponse.Error("Missing required param: 'enabled'")
+                }
+                mapTriggerResult(
+                    resolvedTriggerApi.setRuleEnabled(ruleId, params.optBoolean("enabled")),
+                ) {
+                    ApiResponse.RawObject(it)
+                }
+            }
+
+            "triggers/rules/test" -> {
+                val ruleId = params.optString("ruleId")
+                if (ruleId.isNullOrBlank()) {
+                    return ApiResponse.Error("Missing required param: 'ruleId'")
+                }
+                mapTriggerResult(resolvedTriggerApi.testRule(ruleId)) {
+                    ApiResponse.Success(it)
+                }
+            }
+
+            "triggers/runs/list" -> {
+                ApiResponse.RawArray(resolvedTriggerApi.listRuns(params.optInt("limit", 50)))
+            }
+
+            "triggers/runs/delete" -> {
+                val runId = params.optString("runId")
+                if (runId.isNullOrBlank()) {
+                    return ApiResponse.Error("Missing required param: 'runId'")
+                }
+                mapTriggerResult(resolvedTriggerApi.deleteRun(runId)) {
+                    ApiResponse.Success(it)
+                }
+            }
+
+            "triggers/runs/clear" -> {
+                mapTriggerResult(resolvedTriggerApi.clearRuns()) {
+                    ApiResponse.Success(it)
+                }
+            }
+
             "install" -> {
                 if (origin == Origin.HTTP)
                     return ApiResponse.Error("Install is only supported over WebSocket")
@@ -226,6 +320,16 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
             }
 
             else -> ApiResponse.Error("Unknown method: $method")
+        }
+    }
+
+    private fun <T> mapTriggerResult(
+        result: TriggerApiResult<T>,
+        onSuccess: (T) -> ApiResponse,
+    ): ApiResponse {
+        return when (result) {
+            is TriggerApiResult.Error -> ApiResponse.Error(result.message)
+            is TriggerApiResult.Success -> onSuccess(result.value)
         }
     }
 }
