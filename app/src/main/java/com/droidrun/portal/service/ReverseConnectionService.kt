@@ -23,6 +23,7 @@ import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.core.StateRepository
+import com.droidrun.portal.events.EventHub
 import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
@@ -84,6 +85,7 @@ class ReverseConnectionService : Service() {
     private lateinit var configManager: ConfigManager
     private lateinit var actionDispatcher: ActionDispatcher
     private var headlessActionDispatcher: ActionDispatcher? = null
+    private lateinit var reverseDeviceEventRelay: ReverseDeviceEventRelay
 
     private var webSocketClient: WebSocketClient? = null
     private var isServiceRunning = AtomicBoolean(false)
@@ -105,6 +107,9 @@ class ReverseConnectionService : Service() {
         super.onCreate()
         instance = this
         configManager = ConfigManager.getInstance(this)
+        EventHub.init(configManager)
+        reverseDeviceEventRelay = ReverseDeviceEventRelay(::currentReverseEventSender)
+        reverseDeviceEventRelay.start()
         createNotificationChannel()
         Log.d(TAG, "Service Created")
     }
@@ -143,6 +148,7 @@ class ReverseConnectionService : Service() {
         instance = null
         isServiceRunning.set(false)
         handler.removeCallbacksAndMessages(null)
+        reverseDeviceEventRelay.stop()
         disconnect()
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         try {
@@ -165,6 +171,20 @@ class ReverseConnectionService : Service() {
             return true
         }
         return false
+    }
+
+    private fun currentReverseEventSender(): ((String) -> Boolean)? {
+        val client = webSocketClient ?: return null
+        if (!client.isOpen) return null
+        return { text ->
+            try {
+                client.send(text)
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to send reverse device event", e)
+                false
+            }
+        }
     }
 
     fun buildHeaders(): MutableMap<String, String> {

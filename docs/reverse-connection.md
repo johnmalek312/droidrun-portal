@@ -47,6 +47,10 @@ Reverse connection uses the same JSON-RPC-style messages as the local WebSocket 
 
 Responses include `status` and `result` or `error`.
 
+Live device events are sent separately as JSON-RPC-style notifications with no `id`. See
+[WebSocket Events](websocket-events.md) and [Triggers and Events](triggers.md) for the event
+contract.
+
 ## Trigger Management
 
 Reverse connection supports the same trigger JSON-RPC methods as the local WebSocket API:
@@ -64,6 +68,34 @@ Reverse connection supports the same trigger JSON-RPC methods as the local WebSo
 - `triggers/runs/clear`
 
 These `triggers/*` methods are headless-safe and remain available even if the Accessibility Service is disconnected. See [Triggers and Events](triggers.md) for exact params, `TriggerJson` payload shape, and ADB equivalents.
+
+## Device Events
+
+While reverse connection is active, Portal forwards live device events automatically as unsolicited
+notifications:
+
+```json
+{
+  "method": "events/device",
+  "params": {
+    "type": "APP_ENTERED",
+    "timestamp": 1234567890123,
+    "payload": {
+      "package": "com.example.app"
+    }
+  }
+}
+```
+
+Notes:
+
+- `params` is the same event object used by the local WebSocket event stream: `type`, `timestamp`,
+  and optional `payload`.
+- Local WebSocket defaults to raw `{ "type": "...", "timestamp": ..., "payload": ... }` frames.
+- Local listeners can opt into this same `events/device` envelope via `?eventFormat=rpc`.
+- `?eventFormat=legacy` is still accepted as an explicit request for the default local format.
+- Delivery is live-only and best-effort. Events are not queued or replayed after reconnect.
+- Event filtering still follows the existing Portal event toggles.
 
 ## App control
 
@@ -110,6 +142,8 @@ Streaming commands are only supported over reverse connection.
 
 ### Device → server
 
+- `events/device`
+  - Params: exact Portal event object `{ type, timestamp, payload? }`
 - `stream/ready` (sent when capture is ready)
   - Params: `sessionId`
 - `webrtc/offer` (device-generated offer)
@@ -130,5 +164,20 @@ Streaming commands are only supported over reverse connection.
 ## Configure via ContentProvider (optional)
 
 ```bash
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url:s:"wss://api.mobilerun.ai/v1/providers/personal/join" --bind token:s:"YOUR_TOKEN" --bind enabled:b:true
+adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
 ```
+
+The `check_event_streams.py` smoke script uses the same base64-backed provider fields under
+the hood and restores the previous reverse URL/token and running state during cleanup when
+`run-as` is available.
+
+## Manual Smoke Test
+
+You can manually verify reverse event forwarding with the workspace test server
+`test_reverse_server.py`:
+
+1. Start the server on your machine.
+2. Point Portal reverse connection to that host and connect the device.
+3. Trigger a notification, unlock, app switch, or network change on the device.
+4. Verify the server logs show unsolicited messages with `"method":"events/device"` and the
+   expected `params.type` / `params.payload`.

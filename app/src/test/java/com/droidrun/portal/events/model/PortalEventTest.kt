@@ -60,6 +60,50 @@ class PortalEventTest {
     }
 
     @Test
+    fun toReverseNotificationJson_wrapsEventObjectWithMapPayload() {
+        val event = PortalEvent(
+            type = EventType.APP_ENTERED,
+            timestamp = 456L,
+            payload = mapOf("package" to "com.example.app"),
+        )
+
+        val json = JSONObject(event.toReverseNotificationJson())
+
+        assertEquals("events/device", json.getString("method"))
+        val params = json.getJSONObject("params")
+        assertEquals("APP_ENTERED", params.getString("type"))
+        assertEquals(456L, params.getLong("timestamp"))
+        assertEquals("com.example.app", params.getJSONObject("payload").getString("package"))
+    }
+
+    @Test
+    fun toReverseNotificationJson_wrapsEventObjectWithJsonObjectPayload() {
+        val event = PortalEvent(
+            type = EventType.NOTIFICATION_POSTED,
+            timestamp = 789L,
+            payload = JSONObject().put("title", "Hello"),
+        )
+
+        val json = JSONObject(event.toReverseNotificationJson())
+
+        assertEquals("events/device", json.getString("method"))
+        val params = json.getJSONObject("params")
+        assertEquals("NOTIFICATION_POSTED", params.getString("type"))
+        assertEquals("Hello", params.getJSONObject("payload").getString("title"))
+    }
+
+    @Test
+    fun toReverseNotificationJson_omitsPayloadWhenNull() {
+        val event = PortalEvent(type = EventType.USER_PRESENT, timestamp = 111L)
+
+        val json = JSONObject(event.toReverseNotificationJson())
+
+        assertEquals("events/device", json.getString("method"))
+        val params = json.getJSONObject("params")
+        assertFalse(params.has("payload"))
+    }
+
+    @Test
     fun fromJson_unknownTypeMapsToUnknown() {
         val parsed = PortalEvent.fromJson("""{"type":"DOES_NOT_EXIST","timestamp":1}""")
 
@@ -77,4 +121,3 @@ class PortalEventTest {
         assertTrue((parsed.payload as String).startsWith("Parse Error:"))
     }
 }
-

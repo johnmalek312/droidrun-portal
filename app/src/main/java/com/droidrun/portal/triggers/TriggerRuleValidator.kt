@@ -37,6 +37,10 @@ object TriggerRuleValidator {
         val capabilities = TriggerEditorSupport.capabilitiesFor(rule.source)
         val trimmedName = rule.name.trim()
         val trimmedPromptTemplate = rule.promptTemplate.trim()
+        val preparedRule = rule.copy(
+            name = trimmedName,
+            promptTemplate = trimmedPromptTemplate,
+        )
         val issues = mutableListOf<Issue>()
 
         if (trimmedName.isBlank()) {
@@ -52,32 +56,25 @@ object TriggerRuleValidator {
             issues += Issue(Field.MAX_LAUNCH_COUNT, "Enter a positive number")
         }
 
-        val normalized = TriggerEditorSupport.sanitize(
-            rule.copy(
-                name = trimmedName,
-                promptTemplate = trimmedPromptTemplate,
-            ),
-        )
-
-        when (normalized.source) {
+        when (preparedRule.source) {
             TriggerSource.BATTERY_LEVEL_CHANGED -> {
-                if (normalized.thresholdValue == null || normalized.thresholdValue !in 0..100) {
+                if (preparedRule.thresholdValue == null || preparedRule.thresholdValue !in 0..100) {
                     issues += Issue(Field.THRESHOLD_VALUE, "Enter a battery level between 0 and 100")
                 }
             }
 
             TriggerSource.TIME_DELAY -> {
-                if (normalized.delayMinutes == null || normalized.delayMinutes <= 0) {
+                if (preparedRule.delayMinutes == null || preparedRule.delayMinutes <= 0) {
                     issues += Issue(Field.DELAY_MINUTES, "Choose a delay longer than zero minutes")
                 }
             }
 
             TriggerSource.TIME_ABSOLUTE -> {
                 when {
-                    normalized.absoluteTimeMillis == null ->
+                    preparedRule.absoluteTimeMillis == null ->
                         issues += Issue(Field.ABSOLUTE_TIME, "Choose both a date and a time")
 
-                    normalized.absoluteTimeMillis <= nowMs ->
+                    preparedRule.absoluteTimeMillis <= nowMs ->
                         issues += Issue(Field.ABSOLUTE_TIME, "Choose a future date and time")
                 }
             }
@@ -85,12 +82,12 @@ object TriggerRuleValidator {
             TriggerSource.TIME_DAILY,
             TriggerSource.TIME_WEEKLY,
             -> {
-                if (normalized.dailyHour == null || normalized.dailyMinute == null) {
+                if (preparedRule.dailyHour == null || preparedRule.dailyMinute == null) {
                     issues += Issue(Field.RECURRING_TIME, "Choose a recurring time")
                 }
                 if (
-                    normalized.source == TriggerSource.TIME_WEEKLY &&
-                    normalized.resolvedWeeklyDaysOfWeek().isEmpty()
+                    preparedRule.source == TriggerSource.TIME_WEEKLY &&
+                    preparedRule.resolvedWeeklyDaysOfWeek().isEmpty()
                 ) {
                     issues += Issue(Field.WEEKLY_DAYS, "Choose at least one weekday")
                 }
@@ -100,7 +97,7 @@ object TriggerRuleValidator {
         }
 
         return if (issues.isEmpty()) {
-            Result(normalized, emptyList())
+            Result(TriggerEditorSupport.sanitize(preparedRule), emptyList())
         } else {
             Result(null, issues)
         }
